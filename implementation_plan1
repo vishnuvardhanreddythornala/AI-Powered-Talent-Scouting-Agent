@@ -1,0 +1,174 @@
+# Project Catalyst: AI-Powered Talent Scouting Agent — Implementation Plan
+
+## Overview
+Build a complete production-ready talent scouting platform with two user journeys:
+1. **Recruiter Journey**: Upload JD → AI parses → Quality guardrails → Launch pipeline
+2. **Candidate Journey**: Upload CV → Match scoring → Voice interview (30s prep/30s speak) → Async interest scoring
+
+## File Tree Structure
+
+```
+AI-Powered-Talent-Scouting-Agent/
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── README.md
+│
+├── backend/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── .env
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   ├── models.py
+│   ├── schemas.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── jobs.py
+│   │   ├── applications.py
+│   │   └── interview.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── groq_service.py
+│   │   ├── vector_service.py
+│   │   └── redis_service.py
+│   └── worker/
+│       ├── __init__.py
+│       └── interest_scorer.py
+│
+└── frontend/
+    ├── Dockerfile
+    ├── package.json
+    ├── next.config.js
+    ├── tailwind.config.js
+    ├── postcss.config.js
+    ├── tsconfig.json
+    ├── .env.local
+    ├── public/
+    │   └── beep.mp3
+    └── app/
+        ├── layout.tsx
+        ├── page.tsx
+        ├── globals.css
+        ├── recruiter/
+        │   └── page.tsx
+        └── interview/
+            └── [id]/
+                └── page.tsx
+```
+
+---
+
+## Execution Phases
+
+### Phase 1: Scaffolding & Configuration
+| File | Purpose |
+|------|---------|
+| `.env.example` | Environment variable template |
+| `.gitignore` | Git ignore rules |
+| `backend/requirements.txt` | Python dependencies |
+| `backend/.env` | Backend env vars |
+| `backend/config.py` | Pydantic Settings config loader |
+| `docker-compose.yml` | Full infrastructure stack |
+| `backend/Dockerfile` | Backend container |
+| `frontend/Dockerfile` | Frontend container |
+
+**Git**: `feat: scaffold project structure with Docker Compose and configuration`
+
+---
+
+### Phase 2: Database Layer
+| File | Purpose |
+|------|---------|
+| `backend/database.py` | Async SQLAlchemy engine + session factory |
+| `backend/models.py` | All 5 tables: jobs, candidates, applications, interviews, interview_qna |
+| `backend/schemas.py` | Pydantic schemas (JDAnalysis, CVExtraction, InterviewBlueprint, InterestScore) |
+
+**Git**: `feat: implement async SQLAlchemy database models and Pydantic schemas`
+
+---
+
+### Phase 3: AI & Vector Services
+| File | Purpose |
+|------|---------|
+| `backend/services/groq_service.py` | Groq API wrappers: JD parsing, CV extraction, interview blueprint, question gen, interest scoring, Whisper transcription |
+| `backend/services/vector_service.py` | Sentence-Transformers + Qdrant for match score |
+| `backend/services/redis_service.py` | Rolling window context manager |
+
+**Git**: `feat: add Groq AI service, vector matching, and Redis context manager`
+
+---
+
+### Phase 4: Backend Routers
+| File | Purpose |
+|------|---------|
+| `backend/main.py` | FastAPI app with CORS, lifespan, router mounting |
+| `backend/routers/jobs.py` | JD upload, PDF extraction, AI parsing, quality guardrails |
+| `backend/routers/applications.py` | CV upload, match score calculation, interview initialization |
+| `backend/routers/interview.py` | Audio upload, Whisper transcription, question generation, RabbitMQ publish |
+
+**Git**: `feat: implement FastAPI routers with JD guardrails and voice interview endpoints`
+
+---
+
+### Phase 5: RabbitMQ Worker
+| File | Purpose |
+|------|---------|
+| `backend/worker/interest_scorer.py` | Pika consumer: fetch QnA → Groq scoring → update DB |
+
+**Git**: `feat: implement async interest scoring worker with RabbitMQ consumer`
+
+---
+
+### Phase 6: Frontend Foundation
+| File | Purpose |
+|------|---------|
+| `frontend/package.json` | Next.js + Tailwind + SWR dependencies |
+| `frontend/next.config.js` | Next.js configuration |
+| `frontend/tailwind.config.js` | Tailwind configuration |
+| `frontend/app/layout.tsx` | Root layout with Inter font |
+| `frontend/app/globals.css` | Global styles |
+| `frontend/app/page.tsx` | Landing page |
+
+**Git**: `feat: scaffold Next.js frontend with Tailwind CSS and global layout`
+
+---
+
+### Phase 7: Recruiter Dashboard
+| File | Purpose |
+|------|---------|
+| `frontend/app/recruiter/page.tsx` | JD upload, quality alerts, candidate table with SWR polling |
+
+**Git**: `feat: implement recruiter dashboard with JD upload and live candidate scoring`
+
+---
+
+### Phase 8: Candidate Voice Interview UI
+| File | Purpose |
+|------|---------|
+| `frontend/app/interview/[id]/page.tsx` | Full PREPARING→RECORDING→PROCESSING state machine |
+| `frontend/public/beep.mp3` | Audio cue for recording start |
+
+**Git**: `feat: implement candidate voice interview with 30s prep/speak state machine`
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- `docker-compose up --build` — all 7 services start cleanly
+- FastAPI health check at `http://localhost:8000/health`
+- Frontend loads at `http://localhost:3000`
+- RabbitMQ management at `http://localhost:15672`
+
+### Manual Verification
+- Upload a sample JD PDF → verify parsing and quality guardrails
+- Upload a CV → verify match score calculation
+- Start voice interview → verify 30s timer state machine
+- Check recruiter dashboard → verify SWR polling updates scores
+
+---
+
+> [!IMPORTANT]
+> This is a large codebase (~30 files). I'll generate all files with complete, working implementations — no placeholders. Shall I proceed with execution?
