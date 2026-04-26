@@ -1,16 +1,29 @@
 from typing import List
 from services.vector_service import get_missing_skills_semantically
+import logging
+
+logger = logging.getLogger(__name__)
 
 def analyze_skill_gap(jd_must_haves: List[str], cv_skills: List[str]) -> dict:
     """
     For each missing must-have skill, estimate learning time and suggest resources.
-    Returns a bridge learning plan.
+    Returns a bridge learning plan using semantic matching.
     """
     if not jd_must_haves:
         return {"missing_skills": [], "gap_analysis": [], "hire_recommendation": "No strict requirements"}
 
-    # Use semantic matching instead of naive string substring matching
-    missing = get_missing_skills_semantically(jd_must_haves, cv_skills, threshold=0.45)
+    try:
+        # Use AI semantic matching instead of naive string matching
+        missing = get_missing_skills_semantically(jd_must_haves, cv_skills, threshold=0.45)
+    except Exception as e:
+        logger.error("Error in semantic skill matching: %s", e)
+        # Fallback to naive string match if model fails
+        def norm(s): return s.lower().strip()
+        cv_skills_norm = [norm(c) for c in cv_skills]
+        missing = []
+        for req in jd_must_haves:
+            if not any(norm(req) in c or c in norm(req) for c in cv_skills_norm):
+                missing.append(req)
     
     # Simple heuristics (can be LLM-powered later, but this is fast and deterministic)
     learning_times = {

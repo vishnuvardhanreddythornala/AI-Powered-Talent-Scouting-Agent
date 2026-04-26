@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 
@@ -38,18 +38,31 @@ function ScoreRing({ score, size = 44, color }: { score: number; size?: number; 
 export default function RecruiterDashboard() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cvFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── State ──────────────────────────────────────
+  const [showSplash, setShowSplash] = useState(true);
   const [jobs, setJobs] = useState<any[]>([]);
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [jdText, setJdText] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [pdfUploading, setPdfUploading] = useState(false);
+  const [textUploading, setTextUploading] = useState(false);
+  const [pdfFileName, setPdfFileName] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<any>(null);
   const [uploadSuccess, setUploadSuccess] = useState<any>(null);
-  const [cvUploading, setCvUploading] = useState(false);
-  const [cvResult, setCvResult] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'upload' | 'jobs' | 'candidates'>('upload');
+  const [isDragging, setIsDragging] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // ── Filter State ───────────────────────────────
+  const [minMatch, setMinMatch] = useState(0);
+  const [minInterest, setMinInterest] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  // ── Modal State ────────────────────────────────
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [selectedCandidateHistory, setSelectedCandidateHistory] = useState<any[]>([]);
+  const [selectedCandidateLoading, setSelectedCandidateLoading] = useState(false);
+  const [selectedCandidateDetails, setSelectedCandidateDetails] = useState<any>(null);
 
   // ── SWR: Auto-refresh jobs list ───────────────
   const { data: jobsList, mutate: mutateJobs } = useSWR(`${API}/api/jobs/`, fetcher, {
@@ -66,7 +79,8 @@ export default function RecruiterDashboard() {
 
   // ── Upload JD PDF ──────────────────────────────
   const handlePDFUpload = useCallback(async (file: File) => {
-    setUploading(true);
+    setPdfUploading(true);
+    setPdfFileName(file.name);
     setUploadError(null);
     setUploadSuccess(null);
 
@@ -97,11 +111,10 @@ export default function RecruiterDashboard() {
       const job = await res.json();
       setUploadSuccess(job);
       mutateJobs();
-      setActiveTab('jobs');
     } catch (e: any) {
       setUploadError({ type: 'generic', message: e.message });
     } finally {
-      setUploading(false);
+      setPdfUploading(false);
     }
   }, [mutateJobs]);
 
@@ -112,7 +125,7 @@ export default function RecruiterDashboard() {
       return;
     }
 
-    setUploading(true);
+    setTextUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
 
@@ -141,94 +154,126 @@ export default function RecruiterDashboard() {
       setUploadSuccess(job);
       setJdText('');
       mutateJobs();
-      setActiveTab('jobs');
     } catch (e: any) {
       setUploadError({ type: 'generic', message: e.message });
     } finally {
-      setUploading(false);
+      setTextUploading(false);
     }
   }, [jdText, mutateJobs]);
 
-  // ── Upload CV for a job ────────────────────────
-  const handleCVUpload = useCallback(async (file: File) => {
-    if (!selectedJob) return;
 
-    setCvUploading(true);
-    setCvResult(null);
 
-    const formData = new FormData();
-    formData.append('cv_file', file);
-    formData.append('job_id', selectedJob.id);
+  // ── View Candidate Details ─────────────────────
+  const handleViewDetails = useCallback(async (candidate: any) => {
+    if (!candidate.interview_id) return;
+    setSelectedCandidateDetails(candidate);
+    setDetailsModalOpen(true);
+    setSelectedCandidateLoading(true);
+    setSelectedCandidateHistory([]);
 
     try {
-      const res = await fetch(`${API}/api/applications/apply`, {
-        method: 'POST',
-        body: formData,
-      });
-
+      const res = await fetch(`${API}/api/interview/${candidate.interview_id}/history`);
+      if (!res.ok) throw new Error('Failed to load history');
       const data = await res.json();
-      if (!res.ok) {
-        setCvResult({ error: data.detail || 'CV upload failed' });
-        return;
-      }
-
-      setCvResult(data);
+      setSelectedCandidateHistory(data);
     } catch (e: any) {
-      setCvResult({ error: e.message });
+      console.error('Error fetching candidate history:', e);
     } finally {
-      setCvUploading(false);
+      setSelectedCandidateLoading(false);
     }
-  }, [selectedJob]);
+  }, []);
+
+  const closeCandidateModal = () => setSelectedCandidateDetails(null);
+
+  // ── Splash Screen Timer ────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (showSplash) {
+    return (
+      <div className="min-h-screen bg-surface flex flex-col items-center justify-center relative overflow-hidden">
+        {/* Ambient Background */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full opacity-[0.05]"
+               style={{ background: 'radial-gradient(circle, #A78BFA, transparent)' }} />
+        </div>
+        
+        <div className="relative z-10 text-center animate-scale-in">
+          <div className="w-20 h-20 rounded-2xl mx-auto flex items-center justify-center mb-6"
+               style={{ background: 'linear-gradient(135deg, #34D399, #2BC48E)', boxShadow: '0 0 40px rgba(52,211,153,0.3)' }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0B0B0F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </div>
+          <h1 className="text-4xl font-extrabold text-white tracking-tight mb-3">Welcome to Catalyst</h1>
+          <p className="text-accent-emerald uppercase tracking-widest text-sm font-semibold">Recruiter Dashboard</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen bg-[#07080B]">
+    <div className="min-h-screen bg-surface flex">
       {/* ── Ambient Background ──────────────────── */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-[0.025]"
              style={{ background: 'radial-gradient(circle, #34D399, transparent)' }} />
         <div className="absolute bottom-0 left-1/3 w-[400px] h-[400px] rounded-full opacity-[0.015]"
              style={{ background: 'radial-gradient(circle, #A78BFA, transparent)' }} />
       </div>
 
-      {/* ── Sidebar ────────────────────────────── */}
-      <aside className="w-[260px] flex-shrink-0 border-r border-white/[0.04] bg-[#0A0B10] flex flex-col z-20">
-        {/* Brand */}
-        <div className="flex items-center gap-3 px-8 py-8 border-b border-white/[0.04]">
-          <div className="w-8 h-8 rounded bg-gradient-to-br from-accent-emerald to-emerald-600 flex items-center justify-center shadow-glow-emerald">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {/* ── Left Sidebar ────────────────────────── */}
+      <aside className="w-64 border-r border-white/[0.04] p-6 flex flex-col relative z-10 hidden md:flex shrink-0">
+        {/* Logo */}
+        <div className="flex items-center gap-3 cursor-pointer mb-10" onClick={() => router.push('/')}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+               style={{ background: 'linear-gradient(135deg, #34D399, #2BC48E)' }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0B0B0F" strokeWidth="2.5"
+                 strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
               <path d="M2 17l10 5 10-5" />
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="font-bold text-lg tracking-wide text-text-primary">TalentScope</span>
+          <span className="text-lg font-bold tracking-tight text-text-primary">Catalyst</span>
         </div>
-        
-        {/* Menu */}
-        <div className="px-5 py-8 flex-1">
-          <p className="text-[10px] text-text-disabled font-bold tracking-widest uppercase mb-4 px-3">Recruiter Menu</p>
-          <nav className="flex flex-col gap-1">
-            <button onClick={() => setActiveTab('upload')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === 'upload' ? 'bg-white/[0.06] text-text-primary shadow-sm' : 'text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'}`}>
-              <span className="opacity-70">📄</span> Upload JD
-            </button>
-            <button onClick={() => setActiveTab('jobs')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === 'jobs' ? 'bg-white/[0.06] text-text-primary shadow-sm' : 'text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'}`}>
-              <span className="opacity-70">💼</span> Active Jobs
-            </button>
-            <button onClick={() => setActiveTab('candidates')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === 'candidates' ? 'bg-white/[0.06] text-text-primary shadow-sm' : 'text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'}`}>
-              <span className="opacity-70">👥</span> Candidates
-            </button>
-          </nav>
+
+        <div className="text-xs font-semibold text-text-disabled uppercase tracking-wider mb-3 px-3">
+          Recruiter Menu
         </div>
+
+        {/* Navigation */}
+        <nav className="flex flex-col gap-1">
+          {(['upload', 'jobs', 'candidates'] as const).map(tab => (
+            <button key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all text-left ${
+                      activeTab === tab
+                        ? 'bg-surface-200 text-text-primary shadow-sm border border-white/[0.04]'
+                        : 'text-text-muted hover:text-text-secondary hover:bg-white/[0.02]'
+                    }`}>
+              {tab === 'upload' ? '📄 Upload JD' : tab === 'jobs' ? '💼 Active Jobs' : '👥 Candidates'}
+            </button>
+          ))}
+        </nav>
       </aside>
 
-      {/* ── Main Content ───────────────────────── */}
-      <main className="flex-1 relative z-10 overflow-y-auto bg-surface">
-        <div className="p-10 max-w-7xl mx-auto">
-           {/* Welcome Header */}
-           <div className="mb-10 animate-fade-in">
-             <h1 className="text-2xl font-bold text-text-primary mb-2">Welcome to the Recruiter Dashboard</h1>
-             <p className="text-sm text-text-muted">Upload Job Descriptions to generate AI screening blueprints, manage active roles, and review AI-scored candidate profiles.</p>
-           </div>
+      {/* ── Main Content Area ───────────────────── */}
+      <main className="flex-1 flex flex-col min-w-0 relative z-10 h-screen overflow-y-auto">
+        <div className="p-8 lg:p-12">
+          {/* ── Welcome Header ────────────────────── */}
+          <div className="mb-10 animate-fade-in">
+            <h1 className="text-3xl font-extrabold text-text-primary mb-2">
+              Welcome to the Recruiter Dashboard
+            </h1>
+            <p className="text-sm text-text-secondary max-w-2xl">
+              Upload Job Descriptions to generate AI screening blueprints, manage active roles, and review AI-scored candidate profiles.
+            </p>
+          </div>
 
         {/* ═══════════════════════════════════════════
             TAB: Upload JD
@@ -241,36 +286,57 @@ export default function RecruiterDashboard() {
               <p className="text-xs text-text-muted mb-6">Drop a job description PDF for AI-powered parsing</p>
 
               <div
-                className="border-2 border-dashed border-white/[0.08] rounded-2xl p-10 text-center cursor-pointer hover:border-accent-emerald/30 transition-colors"
-                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-2xl p-10 text-center transition-colors ${
+                  pdfUploading ? 'border-accent-emerald bg-accent-emerald/5 cursor-wait' :
+                  isDragging ? 'border-accent-emerald bg-accent-emerald/5 cursor-pointer' : 'border-white/[0.08] hover:border-accent-emerald/30 cursor-pointer'
+                }`}
+                onClick={() => !pdfUploading && fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); if (!pdfUploading) setIsDragging(true); }}
+                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (pdfUploading) return;
+                  const file = e.dataTransfer.files?.[0];
+                  if (file && file.type === 'application/pdf') {
+                    handlePDFUpload(file);
+                  } else {
+                    setUploadError({ type: 'generic', message: 'Please drop a valid .pdf file' });
+                  }
+                }}
               >
-                <svg className="mx-auto mb-3 text-text-disabled" width="32" height="32" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                <p className="text-sm text-text-secondary mb-1">Click to upload PDF</p>
-                <p className="text-xs text-text-disabled">Supports .pdf files</p>
+                {pdfUploading ? (
+                  <>
+                    <span className="w-8 h-8 border-2 border-accent-emerald/30 border-t-accent-emerald rounded-full animate-spin mx-auto mb-3 block" />
+                    <p className="text-sm text-text-secondary mb-1">Analyzing <strong className="text-text-primary">{pdfFileName}</strong>...</p>
+                    <p className="text-xs text-text-disabled">This may take a minute while AI processes it.</p>
+                  </>
+                ) : (
+                  <>
+                    <svg className={`mx-auto mb-3 transition-colors ${isDragging ? 'text-accent-emerald' : 'text-text-disabled'}`} width="32" height="32" viewBox="0 0 24 24"
+                         fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <p className="text-sm text-text-secondary mb-1">Click or drag and drop to upload PDF</p>
+                    <p className="text-xs text-text-disabled">Supports .pdf files</p>
+                  </>
+                )}
               </div>
               <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
-                     onChange={(e) => e.target.files?.[0] && handlePDFUpload(e.target.files[0])} />
+                     onChange={(e) => {
+                       if (e.target.files?.[0]) {
+                         handlePDFUpload(e.target.files[0]);
+                         e.target.value = ''; // Reset input so same file can be uploaded again if needed
+                       }
+                     }} />
             </div>
 
             {/* Text Upload */}
             <div className="card-surface p-7">
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-base font-bold text-text-primary mb-1">Paste JD Text</h2>
-                  <p className="text-xs text-text-muted">Or paste the job description directly</p>
-                </div>
-                <button 
-                  onClick={() => setJdText("Senior Backend Developer\n\nCompany: Tech Solutions\nLocation: Remote\nJob Type: Full-Time\n\nRole Overview:\nWe are looking for a Senior Backend Developer proficient in Java + Spring Boot or Python + FastAPI. You will build scalable microservices, manage PostgreSQL databases, and implement CI/CD pipelines using Docker and AWS.\n\nRequired Skills:\n- 4+ years backend development\n- Java (Spring Boot) or Python (FastAPI/Django)\n- Relational databases (PostgreSQL, MySQL)\n- Cloud platforms (AWS/GCP)\n- Docker and CI/CD")}
-                  className="btn-ghost text-[10px] py-1 px-3 border border-white/10 hover:border-accent-emerald/50 hover:text-accent-emerald transition-colors"
-                >
-                  Load Sample JD
-                </button>
-              </div>
+              <h2 className="text-base font-bold text-text-primary mb-1">Paste JD Text</h2>
+              <p className="text-xs text-text-muted mb-6">Or paste the job description directly</p>
 
               <textarea
                 value={jdText}
@@ -278,15 +344,15 @@ export default function RecruiterDashboard() {
                 placeholder="Paste job description here (minimum 50 characters)..."
                 className="input-dark h-48 resize-none mb-4"
               />
-              <button onClick={handleTextUpload} disabled={uploading || jdText.length < 50}
+              <button onClick={handleTextUpload} disabled={textUploading || jdText.length < 50}
                       className="btn-primary w-full flex items-center justify-center gap-2">
-                {uploading ? (
+                {textUploading ? (
                   <>
                     <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
                     Analyzing...
                   </>
                 ) : (
-                  'Parse & Launch Pipeline'
+                  'Start Candidate Discovery'
                 )}
               </button>
             </div>
@@ -327,19 +393,31 @@ export default function RecruiterDashboard() {
             {uploadSuccess && (
               <div className="lg:col-span-2 card-surface p-6 border-l-4 border-accent-emerald/60 animate-scale-in">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-lg">✅</span>
-                  <h3 className="text-sm font-bold text-accent-emerald">Pipeline Launched Successfully</h3>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34D399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                  <h3 className="text-sm font-bold text-accent-emerald">JD Parsed Successfully</h3>
                 </div>
                 <p className="text-xs text-text-secondary mb-2">
-                  <strong className="text-text-primary">{uploadSuccess.title}</strong> has been parsed and is now active.
+                  <strong className="text-text-primary">{uploadSuccess.title}</strong> — Pipeline launched, ready for candidates.
                 </p>
                 {uploadSuccess.parsed_params && (
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {(uploadSuccess.must_haves || []).map((skill: string, i: number) => (
-                      <span key={i} className="badge badge-emerald">{skill}</span>
-                    ))}
+                  <div className="mb-4">
+                    <p className="text-[10px] text-text-disabled uppercase tracking-wider mb-2">Skills Extracted</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(uploadSuccess.must_haves || []).map((skill: string, i: number) => (
+                        <span key={i} className="badge badge-emerald">{skill}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
+                <div className="flex items-center gap-3 mt-4 pt-4 border-t border-white/[0.06]">
+                  <button onClick={() => { setSelectedJob(uploadSuccess); setActiveTab('candidates'); setUploadSuccess(null); }}
+                          className="btn-primary text-xs">View Candidates</button>
+                  <button onClick={() => { setActiveTab('jobs'); setUploadSuccess(null); }}
+                          className="btn-ghost text-xs">Go to Active Jobs</button>
+                </div>
               </div>
             )}
           </div>
@@ -418,65 +496,91 @@ export default function RecruiterDashboard() {
             ) : (
               <>
                 {/* Job Header */}
-                <div className="card-surface p-6 mb-6 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold text-text-primary">{selectedJob.title}</h2>
-                    <p className="text-xs text-text-muted mt-1">
-                      {selectedJob.parsed_params?.salary_range || 'Salary not specified'} ·{' '}
-                      {selectedJob.parsed_params?.years_of_experience || 0}+ years
-                    </p>
+                <div className="card-surface p-6 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-bold text-text-primary">{selectedJob.title}</h2>
+                      <p className="text-xs text-text-muted mt-1">
+                        {selectedJob.parsed_params?.salary_range || 'Salary not specified'} ·{' '}
+                        {selectedJob.parsed_params?.years_of_experience || 0}+ years
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => cvFileInputRef.current?.click()}
-                            className="btn-primary text-xs flex items-center gap-2"
-                            disabled={cvUploading}>
-                      {cvUploading ? (
-                        <>
-                          <span className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                          Processing CV...
-                        </>
-                      ) : (
-                        <>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                            <polyline points="17 8 12 3 7 8" />
-                            <line x1="12" y1="3" x2="12" y2="15" />
-                          </svg>
-                          Upload Candidate CV
-                        </>
-                      )}
-                    </button>
-                    <input ref={cvFileInputRef} type="file" accept=".pdf" className="hidden"
-                           onChange={(e) => e.target.files?.[0] && handleCVUpload(e.target.files[0])} />
+                  {/* Candidate Portal Link */}
+                  <div className="p-3 rounded-xl bg-accent-purple/5 border border-accent-purple/15">
+                    <p className="text-[10px] text-accent-purple font-semibold uppercase tracking-wider mb-1.5">Share with Candidates</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs text-text-secondary bg-white/[0.03] px-3 py-1.5 rounded-lg truncate">
+                        {typeof window !== 'undefined' ? `${window.location.origin}/candidate?job=${selectedJob.id}` : `/candidate?job=${selectedJob.id}`}
+                      </code>
+                      <button onClick={() => {
+                                navigator.clipboard.writeText(`${window.location.origin}/candidate?job=${selectedJob.id}`);
+                                setLinkCopied(true);
+                                setTimeout(() => setLinkCopied(false), 2000);
+                              }}
+                              className={`text-[10px] px-3 py-1.5 flex-shrink-0 rounded-xl font-semibold tracking-wide transition-all ${
+                                linkCopied
+                                  ? 'bg-accent-emerald/20 text-accent-emerald border border-accent-emerald/30'
+                                  : 'bg-white/[0.04] text-text-muted border border-white/[0.08] hover:bg-white/[0.08] hover:text-text-primary'
+                              }`}>
+                        {linkCopied ? '✓ Copied!' : 'Copy Link'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* CV Upload Result */}
-                {cvResult && (
-                  <div className={`card-surface p-5 mb-6 border-l-4 animate-scale-in ${
-                    cvResult.error ? 'border-red-500/60' : 'border-accent-emerald/60'
-                  }`}>
-                    {cvResult.error ? (
-                      <p className="text-sm text-red-400">{cvResult.error}</p>
-                    ) : (
+                {/* ── Score Filters ─────────────────────── */}
+                {Array.isArray(candidates) && candidates.length > 0 && (
+                  <div className="card-surface p-5 mb-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                      </svg>
+                      <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Filter Candidates</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Match Score Slider */}
                       <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-lg">🎯</span>
-                          <h3 className="text-sm font-bold text-accent-emerald">
-                            {cvResult.candidate_name} — Match Score: {cvResult.match_score}%
-                          </h3>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-[10px] text-text-muted uppercase tracking-wider">Min Match Score</label>
+                          <span className="text-xs font-bold text-accent-emerald">{minMatch}%</span>
                         </div>
-                        <p className="text-xs text-text-secondary mb-3">
-                          Interview initialized with {cvResult.total_questions} STAR questions.
-                        </p>
-                        <button
-                          onClick={() => router.push(`/interview/${cvResult.interview_id}?app=${cvResult.application_id}`)}
-                          className="btn-primary text-xs"
-                        >
-                          Start Interview →
-                        </button>
+                        <input type="range" min="0" max="100" value={minMatch}
+                               onChange={(e) => setMinMatch(Number(e.target.value))}
+                               className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                               style={{ background: `linear-gradient(to right, #34D399 ${minMatch}%, rgba(255,255,255,0.08) ${minMatch}%)` }} />
                       </div>
+                      {/* Interest Score Slider */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-[10px] text-text-muted uppercase tracking-wider">Min Interest Score</label>
+                          <span className="text-xs font-bold text-accent-purple">{minInterest}%</span>
+                        </div>
+                        <input type="range" min="0" max="100" value={minInterest}
+                               onChange={(e) => setMinInterest(Number(e.target.value))}
+                               className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                               style={{ background: `linear-gradient(to right, #A78BFA ${minInterest}%, rgba(255,255,255,0.08) ${minInterest}%)` }} />
+                      </div>
+                      {/* Status Filter */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-[10px] text-text-muted uppercase tracking-wider">Status</label>
+                        </div>
+                        <select value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="w-full px-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-xs text-text-primary focus:outline-none focus:border-accent-purple/40 appearance-none cursor-pointer">
+                          <option value="all">All Statuses</option>
+                          <option value="applied">Awaiting Response</option>
+                          <option value="interviewing">Screening In Progress</option>
+                          <option value="scored">Screening Complete</option>
+                        </select>
+                      </div>
+                    </div>
+                    {(minMatch > 0 || minInterest > 0 || statusFilter !== 'all') && (
+                      <button onClick={() => { setMinMatch(0); setMinInterest(0); setStatusFilter('all'); }}
+                              className="mt-3 text-[10px] text-accent-purple hover:text-accent-purple/80 cursor-pointer transition-colors">
+                        ✕ Clear all filters
+                      </button>
                     )}
                   </div>
                 )}
@@ -487,14 +591,23 @@ export default function RecruiterDashboard() {
                     <h3 className="text-sm font-bold text-text-primary">
                       Candidates
                       <span className="ml-2 text-text-disabled font-normal">
-                        {Array.isArray(candidates) ? candidates.length : 0}
+                        {(() => {
+                          const filtered = (Array.isArray(candidates) ? candidates : []).filter((c: any) => {
+                            if (c.match_score < minMatch) return false;
+                            if (Math.round(c.final_interest_score) < minInterest) return false;
+                            if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+                            return true;
+                          });
+                          const total = Array.isArray(candidates) ? candidates.length : 0;
+                          return filtered.length === total ? total : `${filtered.length} of ${total}`;
+                        })()}
                       </span>
                     </h3>
                   </div>
 
                   {!Array.isArray(candidates) || candidates.length === 0 ? (
                     <div className="p-12 text-center">
-                      <p className="text-xs text-text-muted">No candidates yet. Upload a CV to get started.</p>
+                      <p className="text-xs text-text-muted">No candidates yet. Share the candidate portal link to start receiving applications.</p>
                     </div>
                   ) : (
                     <table className="table-premium">
@@ -509,7 +622,20 @@ export default function RecruiterDashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {candidates.map((c: any) => (
+                        {candidates
+                          .filter((c: any) => {
+                            if (c.match_score < minMatch) return false;
+                            if (Math.round(c.final_interest_score) < minInterest) return false;
+                            if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+                            return true;
+                          })
+                          .sort((a: any, b: any) => {
+                            // Sort by combined score descending
+                            const scoreA = a.match_score + a.final_interest_score;
+                            const scoreB = b.match_score + b.final_interest_score;
+                            return scoreB - scoreA;
+                          })
+                          .map((c: any) => (
                           <tr key={c.application_id}>
                             <td>
                               <div>
@@ -527,17 +653,28 @@ export default function RecruiterDashboard() {
                               </div>
                             </td>
                             <td><ScoreRing score={c.match_score} color="#34D399" /></td>
-                            <td><ScoreRing score={Math.round(c.final_interest_score)} color="#A78BFA" /></td>
+                             <td>
+                              {c.status === 'interviewing' && c.final_interest_score === 0 ? (
+                                <span className="text-[10px] text-accent-purple font-medium">Pending</span>
+                              ) : (
+                                <ScoreRing score={Math.round(c.final_interest_score)} color="#A78BFA" />
+                              )}
+                            </td>
                             <td>
                               <span className={`badge ${
                                 c.status === 'interviewing' ? 'badge-amber' :
                                 c.status === 'scored' ? 'badge-emerald' : 'badge-purple'
                               }`}>
-                                {c.status}
+                                {c.status === 'interviewing' ? 'Screening In Progress' :
+                                 c.status === 'scored' ? 'Screening Complete' :
+                                 c.status === 'applied' ? 'Awaiting Response' : c.status}
                               </span>
                             </td>
                             <td>
-                              <button className="btn-ghost text-[10px] py-1.5 px-3">
+                              <button 
+                                onClick={() => handleViewDetails(c)}
+                                disabled={!c.interview_id}
+                                className="btn-ghost text-[10px] py-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed">
                                 View Details
                               </button>
                             </td>
@@ -551,8 +688,251 @@ export default function RecruiterDashboard() {
             )}
           </div>
         )}
+      </div>
+    </main>
+      {/* ═══════════════════════════════════════════
+          Candidate Details Modal
+          ═══════════════════════════════════════════ */}
+      {detailsModalOpen && selectedCandidateDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-surface border border-white/[0.08] rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-white/[0.08]">
+              <div>
+                <h2 className="text-lg font-bold text-text-primary">{selectedCandidateDetails.candidate_name}</h2>
+                <p className="text-sm text-text-muted">{selectedCandidateDetails.candidate_email}</p>
+              </div>
+              <button onClick={() => setDetailsModalOpen(false)} className="text-text-muted hover:text-white transition-colors">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="flex gap-8 mb-8">
+                <div>
+                  <p className="text-xs text-text-disabled uppercase tracking-wider mb-1">Semantic Match</p>
+                  <div className="flex items-center gap-2">
+                    <ScoreRing score={selectedCandidateDetails.match_score} size={36} color="#34D399" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-text-disabled uppercase tracking-wider mb-1">Interest Score</p>
+                  <div className="flex items-center gap-2">
+                    {selectedCandidateDetails.final_interest_score === 0 && selectedCandidateDetails.status === 'interviewing' ? (
+                      <span className="text-xs text-accent-purple font-medium">Screening Pending</span>
+                    ) : (
+                      <ScoreRing score={Math.round(selectedCandidateDetails.final_interest_score)} size={36} color="#A78BFA" />
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-text-disabled uppercase tracking-wider mb-1">Status</p>
+                  <span className={`badge mt-1 ${
+                    selectedCandidateDetails.status === 'interviewing' ? 'badge-amber' :
+                    selectedCandidateDetails.status === 'scored' ? 'badge-emerald' : 'badge-purple'
+                  }`}>
+                    {selectedCandidateDetails.status === 'interviewing' ? 'Screening In Progress' :
+                     selectedCandidateDetails.status === 'scored' ? 'Screening Complete' : selectedCandidateDetails.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* ── XAI: Why This Candidate? ────────── */}
+              {selectedJob && selectedCandidateDetails.cv_skills && (
+                <div className="card-surface p-5 mb-6 border-l-4 border-blue-400/40">
+                  <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    Why This Candidate?
+                  </h4>
+                  {(() => {
+                    const normalize = (str: string) => ` ${str.toLowerCase().replace(/[^a-z0-9+#]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+                    const isMatch = (s: string, c: string) => {
+                      const sNorm = normalize(s);
+                      const cNorm = normalize(c);
+                      const sTrim = sNorm.trim();
+                      const cTrim = cNorm.trim();
+                      if (!sTrim || !cTrim) return false;
+                      return sNorm.includes(` ${cTrim} `) || cNorm.includes(` ${sTrim} `);
+                    };
+
+                    const jdSkills: string[] = selectedJob.must_haves || [];
+                    const cvSkills: string[] = selectedCandidateDetails.cv_skills || [];
+                    
+                    const rawText: string = selectedCandidateDetails.cv_parsed_json?.raw_text || "";
+                    const rawTextNorm = rawText ? normalize(rawText) : "";
+                    
+                    const isMatchOverall = (s: string) => {
+                      const sTrim = normalize(s).trim();
+                      if (!sTrim) return false;
+                      
+                      // 1. Check parsed skill array
+                      if (cvSkills.some((c: string) => isMatch(s, c))) return true;
+                      
+                      // 2. Check raw CV text
+                      if (rawTextNorm.includes(` ${sTrim} `)) return true;
+                      
+                      return false;
+                    };
+
+                    const matched = jdSkills.filter((s: string) => isMatchOverall(s));
+                    const missing = jdSkills.filter((s: string) => !isMatchOverall(s));
+                    const coverage = jdSkills.length > 0 ? Math.round((matched.length / jdSkills.length) * 100) : 0;
+                    return (
+                      <div className="space-y-2">
+                        {matched.map((s: string, i: number) => (
+                          <div key={`m-${i}`} className="flex items-center gap-2 text-xs">
+                            <span className="text-accent-emerald">✓</span>
+                            <span className="text-text-secondary">{s} experience aligns with JD</span>
+                          </div>
+                        ))}
+                        {missing.map((s: string, i: number) => (
+                          <div key={`x-${i}`} className="flex items-center gap-2 text-xs">
+                            <span className="text-amber-400">✗</span>
+                            <span className="text-text-muted">Missing {s} experience</span>
+                          </div>
+                        ))}
+                        <div className="mt-3 pt-3 border-t border-white/[0.06] text-xs text-text-muted">
+                          Skill Coverage: <strong className="text-text-primary">{matched.length}/{jdSkills.length}</strong> ({coverage}%)
+                          {coverage >= 70 ? ' — Strong Match' : coverage >= 40 ? ' — Moderate Match' : ' — Needs Review'}
+                        </div>
+                        
+                        {/* ── Bridge Plan (Skill Gap Analysis) ── */}
+                        {selectedCandidateDetails.skill_gap_analysis?.gap_analysis?.length > 0 && (
+                          <div className="mt-4 pt-3 border-t border-white/[0.06]">
+                            <h5 className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2">Bridge Plan / Upskilling</h5>
+                            <div className="space-y-1">
+                              {selectedCandidateDetails.skill_gap_analysis.gap_analysis.map((gap: any, i: number) => (
+                                <div key={i} className="flex justify-between items-center text-xs">
+                                  <span className="text-text-secondary">• {gap.skill}</span>
+                                  <span className="text-text-muted text-[10px] bg-white/[0.03] px-2 py-0.5 rounded">{gap.learning_time}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-[10px] text-text-muted mt-2 italic border-l-2 border-white/10 pl-2">
+                              {selectedCandidateDetails.skill_gap_analysis.hire_recommendation}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* ── Bonus Skills ── */}
+                        {selectedJob.nice_to_haves && selectedJob.nice_to_haves.length > 0 && (
+                          <div className="mt-4 pt-3 border-t border-white/[0.06]">
+                            <h5 className="text-[10px] font-bold text-accent-purple uppercase tracking-wider mb-2 flex items-center gap-1">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                              </svg>
+                              Bonus Skills Detected
+                            </h5>
+                            <div className="flex flex-wrap gap-1.5">
+                              {selectedJob.nice_to_haves.filter((s: string) => isMatchOverall(s)).map((s: string, i: number) => (
+                                <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-accent-purple/10 text-accent-purple border border-accent-purple/20">
+                                  {s}
+                                </span>
+                              ))}
+                              {selectedJob.nice_to_haves.filter((s: string) => isMatchOverall(s)).length === 0 && (
+                                <span className="text-[10px] text-text-disabled">No bonus skills found</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* ── AI Reasoning Trace (expandable) ──── */}
+              <details className="card-surface mb-6 overflow-hidden">
+                <summary className="p-4 cursor-pointer text-xs font-bold text-text-muted uppercase tracking-wider hover:text-text-primary transition-colors flex items-center gap-2">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                  AI Reasoning Trace
+                </summary>
+                <div className="px-4 pb-4 space-y-1.5 font-mono">
+                  <p className="text-[10px] text-accent-emerald">▸ ENTERING: JD PARSING → Skills extracted via Groq LLaMA-3.3-70B</p>
+                  <p className="text-[10px] text-accent-emerald">▸ ENTERING: CV ANALYSIS → Profile parsed via Groq LLaMA-3.3-70B</p>
+                  <p className="text-[10px] text-accent-emerald">▸ ENTERING: VECTOR EMBEDDING → Skills encoded with Sentence-Transformers (all-MiniLM-L6-v2)</p>
+                  <p className="text-[10px] text-accent-emerald">▸ ENTERING: QDRANT COSINE SIMILARITY → Semantic Match Score: {selectedCandidateDetails.match_score}%</p>
+                  <p className="text-[10px] text-accent-emerald">▸ ENTERING: INTEREST SCREENING → {selectedCandidateHistory.length} questions completed</p>
+                  <p className="text-[10px] text-accent-purple">▸ ENTERING: SCORING → Interest Score: {Math.round(selectedCandidateDetails.final_interest_score)}/100</p>
+                  <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                    <p className="text-[10px] text-text-muted">Skill coverage: {selectedCandidateDetails.cv_skills?.length || 0} candidate skills evaluated</p>
+                    <p className="text-[10px] text-text-muted">Experience confidence: {selectedCandidateDetails.match_score >= 70 ? 'High' : selectedCandidateDetails.match_score >= 40 ? 'Moderate' : 'Low'}</p>
+                    <p className="text-[10px] text-text-muted">Interest confidence: {selectedCandidateDetails.final_interest_score >= 70 ? 'Strong' : selectedCandidateDetails.final_interest_score >= 40 ? 'Moderate' : 'Needs further screening'}</p>
+                    <p className="text-[10px] text-text-primary font-semibold mt-2">
+                      Final recommendation: {
+                        selectedCandidateDetails.match_score >= 60 && selectedCandidateDetails.final_interest_score >= 60 ? '✓ Shortlist' :
+                        selectedCandidateDetails.match_score >= 40 || selectedCandidateDetails.final_interest_score >= 40 ? '⟳ Needs Review' :
+                        '— Not Recommended'
+                      }
+                    </p>
+                  </div>
+                </div>
+              </details>
+
+              <h3 className="text-sm font-bold text-text-primary mb-4 border-b border-white/[0.08] pb-2">Screening Conversation</h3>
+              
+              {selectedCandidateLoading ? (
+                <div className="py-12 text-center">
+                  <span className="w-8 h-8 border-2 border-accent-purple/30 border-t-accent-purple rounded-full animate-spin mx-auto block mb-4" />
+                  <p className="text-sm text-text-muted">Loading screening conversation...</p>
+                </div>
+              ) : selectedCandidateHistory.length === 0 ? (
+                <div className="py-8 text-center bg-white/[0.02] rounded-xl border border-white/[0.04]">
+                  <p className="text-sm text-text-muted">No screening conversation found.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {selectedCandidateHistory.map((item, index) => (
+                    <div key={index} className="bg-white/[0.02] rounded-xl border border-white/[0.04] overflow-hidden">
+                      {/* Question */}
+                      <div className="p-4 bg-white/[0.02] border-b border-white/[0.04]">
+                        <div className="flex items-start gap-3">
+                          <span className="flex-shrink-0 w-6 h-6 rounded bg-accent-emerald/10 text-accent-emerald flex items-center justify-center text-xs font-bold mt-0.5">Q{item.q_number}</span>
+                          <p className="text-sm text-text-primary leading-relaxed">{item.ai_question}</p>
+                        </div>
+                      </div>
+                      
+                      {/* Answer */}
+                      <div className="p-4">
+                        <div className="flex items-start gap-3 mb-4">
+                          <span className="flex-shrink-0 w-6 h-6 rounded bg-accent-purple/10 text-accent-purple flex items-center justify-center text-xs font-bold mt-0.5">A</span>
+                          <p className="text-sm text-text-secondary leading-relaxed italic border-l-2 border-white/10 pl-3">
+                            "{item.candidate_answer || 'No answer recorded.'}"
+                          </p>
+                        </div>
+
+                        {/* Evaluation */}
+                        {item.interest_score !== null && (
+                          <div className="ml-9 p-3 rounded-lg bg-[#0B0B0F]/50 border border-white/[0.04] flex items-start gap-3">
+                            <div className="flex-shrink-0 pt-0.5">
+                              <ScoreRing score={item.interest_score} size={28} color="#A78BFA" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-text-disabled uppercase tracking-wider mb-1">Interest Signal</p>
+                              <p className="text-xs text-text-muted leading-relaxed">{item.score_reasoning}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </main>
+      )}
     </div>
   );
 }

@@ -82,31 +82,6 @@ def encode_skills(skills: List[str]) -> np.ndarray:
     return avg_embedding
 
 
-def get_missing_skills_semantically(jd_must_haves: List[str], cv_skills: List[str], threshold: float = 0.45) -> List[str]:
-    """Find missing skills using semantic cosine similarity instead of exact string match."""
-    if not jd_must_haves:
-        return []
-    if not cv_skills:
-        return jd_must_haves
-
-    model = _get_model()
-    # Encode both lists into tensors
-    req_embeddings = model.encode(jd_must_haves, convert_to_tensor=True)
-    cv_embeddings = model.encode(cv_skills, convert_to_tensor=True)
-    
-    # Compute cosine similarities. Shape: (len(jd_must_haves), len(cv_skills))
-    cosine_scores = util.cos_sim(req_embeddings, cv_embeddings)
-    
-    missing = []
-    for i, req in enumerate(jd_must_haves):
-        # max similarity for this requirement against any CV skill
-        max_score = cosine_scores[i].max().item()
-        if max_score < threshold:
-            missing.append(req)
-            
-    return missing
-
-
 async def store_jd_skills(job_id: str, skills: List[str]) -> None:
     """Store JD skill embeddings in Qdrant for later matching."""
     qdrant = _get_qdrant()
@@ -178,3 +153,34 @@ async def calculate_match_score(job_id: str, cv_skills: List[str]) -> int:
 
     logger.warning("Could not find JD vector for job %s, returning 0", job_id)
     return 0
+
+
+def get_missing_skills_semantically(jd_must_haves: List[str], cv_skills: List[str], threshold: float = 0.45) -> List[str]:
+    """
+    Compare JD must-have skills against CV skills semantically.
+    Returns a list of JD requirements that do not have a strong semantic match in the CV.
+    """
+    if not jd_must_haves:
+        return []
+    if not cv_skills:
+        return jd_must_haves
+
+    model = _get_model()
+
+    # Encode all requirements and skills at once into tensors
+    req_embeddings = model.encode(jd_must_haves, convert_to_tensor=True)
+    cv_embeddings = model.encode(cv_skills, convert_to_tensor=True)
+
+    # Compute cosine similarities
+    # Resulting shape: (len(jd_must_haves), len(cv_skills))
+    cosine_scores = util.cos_sim(req_embeddings, cv_embeddings)
+
+    missing = []
+    for i, req in enumerate(jd_must_haves):
+        # Find the max similarity for this requirement against any CV skill
+        max_score = cosine_scores[i].max().item()
+        logger.debug("Skill '%s' max similarity: %.2f", req, max_score)
+        if max_score < threshold:
+            missing.append(req)
+
+    return missing
