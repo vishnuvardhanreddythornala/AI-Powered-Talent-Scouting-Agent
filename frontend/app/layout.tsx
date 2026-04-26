@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Project Catalyst — AI-Powered Talent Scouting',
+  title: 'TalentScope — AI-Powered Talent Scouting',
   description:
     'Enterprise AI recruitment platform with automated JD parsing, CV matching, and voice-based candidate assessment.',
 };

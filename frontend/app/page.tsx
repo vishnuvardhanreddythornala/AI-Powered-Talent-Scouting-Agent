@@ -13,6 +13,8 @@ export default function HomePage() {
              style={{ background: 'radial-gradient(circle, #34D399, transparent)' }} />
         <div className="absolute -bottom-60 -left-40 w-[500px] h-[500px] rounded-full opacity-[0.02]"
              style={{ background: 'radial-gradient(circle, #A78BFA, transparent)' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full opacity-[0.015]"
+             style={{ background: 'radial-gradient(circle, #60A5FA, transparent)' }} />
       </div>
 
       {/* ── Navigation ─────────────────────────── */}
@@ -28,14 +30,8 @@ export default function HomePage() {
             </svg>
           </div>
           <span className="text-lg font-bold tracking-tight text-text-primary">
-            Project Catalyst
+            TalentScope
           </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/recruiter')}
-                  className="btn-ghost text-xs">
-            Recruiter Portal
-          </button>
         </div>
       </nav>
 
@@ -47,7 +43,7 @@ export default function HomePage() {
                style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.15)' }}>
             <span className="w-1.5 h-1.5 rounded-full bg-accent-emerald animate-pulse" />
             <span className="text-xs font-medium text-accent-emerald tracking-wide">
-              AI-POWERED RECRUITMENT
+              AI-POWERED TALENT SCOUTING
             </span>
           </div>
 
@@ -56,14 +52,14 @@ export default function HomePage() {
             <span className="text-text-primary">Talent Scouting</span>
             <br />
             <span className="bg-gradient-to-r from-accent-emerald to-emerald-300 bg-clip-text text-transparent">
-              Reimagined with AI
+              & Engagement Agent
             </span>
           </h1>
 
           {/* Subtitle */}
           <p className="text-lg text-text-secondary max-w-xl mx-auto mb-10 leading-relaxed">
-            Automate top-of-funnel recruitment with AI-parsed job descriptions,
-            semantic CV matching, and voice-based behavioral interviews — all in real time.
+            AI-powered candidate discovery, conversational interest screening,
+            and intelligent ranked shortlists — all in real time.
           </p>
 
           {/* CTAs */}
@@ -79,10 +75,19 @@ export default function HomePage() {
               </svg>
               Recruiter Dashboard
             </button>
+            <button onClick={() => router.push('/candidate')}
+                    className="btn-ghost flex items-center gap-2 border border-white/[0.08]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                   strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              Candidate Portal
+            </button>
           </div>
 
           {/* ── Feature Grid ─────────────────────── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-20">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-20">
             {[
               {
                 icon: (
@@ -118,8 +123,19 @@ export default function HomePage() {
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                 ),
-                title: 'Voice Interviews',
-                desc: '30-second STAR behavioral assessments with live AI scoring',
+                title: 'AI Interest Screening',
+                desc: 'Conversational recruiter outreach that measures genuine candidate interest',
+              },
+              {
+                icon: (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" strokeWidth="1.8"
+                       strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 11l3 3L22 4" />
+                    <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+                  </svg>
+                ),
+                title: 'Explainable AI',
+                desc: 'Transparent reasoning traces so recruiters understand every AI decision',
               },
             ].map((f, i) => (
               <div key={i} className="card-surface p-6 text-left animate-slide-up"
@@ -133,13 +149,43 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+
+          {/* ── How It Works ────────────────────────── */}
+          <div className="mt-20 mb-8">
+            <h2 className="text-xl font-bold text-text-primary mb-8">How It Works</h2>
+            <div className="flex flex-col md:flex-row items-start justify-center gap-2">
+              {[
+                { step: '1', title: 'Upload JD', desc: 'Recruiter uploads job description' },
+                { step: '2', title: 'Candidate Applies', desc: 'Candidate uploads CV via portal' },
+                { step: '3', title: 'AI Screening', desc: 'Conversational interest assessment' },
+                { step: '4', title: 'Ranked Shortlist', desc: 'Recruiter sees ranked candidates' },
+              ].map((s, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="flex flex-col items-center text-center min-w-[140px]">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold mb-2"
+                         style={{ background: 'rgba(52,211,153,0.12)', color: '#34D399' }}>
+                      {s.step}
+                    </div>
+                    <h4 className="text-xs font-semibold text-text-primary">{s.title}</h4>
+                    <p className="text-[10px] text-text-muted mt-1">{s.desc}</p>
+                  </div>
+                  {i < 3 && (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.15)"
+                         strokeWidth="2" strokeLinecap="round" className="hidden md:block flex-shrink-0 mt-[-20px]">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </main>
 
       {/* ── Footer ─────────────────────────────── */}
       <footer className="relative z-10 text-center py-6 border-t border-white/[0.04]">
         <p className="text-xs text-text-disabled">
-          Project Catalyst © 2024 — Built with FastAPI, Next.js, Groq &amp; Qdrant
+          TalentScope — AI-Powered Talent Scouting &amp; Engagement Agent · Built with FastAPI, Next.js, Groq &amp; Qdrant
         </p>
       </footer>
     </div>

@@ -181,49 +181,54 @@ export default function RecruiterDashboard() {
   }, [selectedJob]);
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="flex min-h-screen bg-[#07080B]">
       {/* ── Ambient Background ──────────────────── */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-[0.025]"
              style={{ background: 'radial-gradient(circle, #34D399, transparent)' }} />
         <div className="absolute bottom-0 left-1/3 w-[400px] h-[400px] rounded-full opacity-[0.015]"
              style={{ background: 'radial-gradient(circle, #A78BFA, transparent)' }} />
       </div>
 
-      {/* ── Top Bar ────────────────────────────── */}
-      <header className="relative z-10 flex items-center justify-between px-8 py-4 border-b border-white/[0.04]">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => router.push('/')}>
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-               style={{ background: 'linear-gradient(135deg, #34D399, #2BC48E)' }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0B0B0F" strokeWidth="2.5"
-                 strokeLinecap="round" strokeLinejoin="round">
+      {/* ── Sidebar ────────────────────────────── */}
+      <aside className="w-[260px] flex-shrink-0 border-r border-white/[0.04] bg-[#0A0B10] flex flex-col z-20">
+        {/* Brand */}
+        <div className="flex items-center gap-3 px-8 py-8 border-b border-white/[0.04]">
+          <div className="w-8 h-8 rounded bg-gradient-to-br from-accent-emerald to-emerald-600 flex items-center justify-center shadow-glow-emerald">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2L2 7l10 5 10-5-10-5z" />
               <path d="M2 17l10 5 10-5" />
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="text-base font-bold tracking-tight text-text-primary">Catalyst</span>
-          <span className="text-text-disabled mx-2">/</span>
-          <span className="text-sm text-text-secondary">Recruiter Dashboard</span>
+          <span className="font-bold text-lg tracking-wide text-text-primary">TalentScope</span>
         </div>
-      </header>
-
-      <div className="relative z-10 max-w-7xl mx-auto px-8 py-8">
-        {/* ── Tab Navigation ────────────────────── */}
-        <div className="flex items-center gap-1 mb-8 p-1 rounded-xl w-fit"
-             style={{ background: 'rgba(255,255,255,0.03)' }}>
-          {(['upload', 'jobs', 'candidates'] as const).map(tab => (
-            <button key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`px-5 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
-                      activeTab === tab
-                        ? 'bg-surface-200 text-text-primary shadow-sm'
-                        : 'text-text-muted hover:text-text-secondary'
-                    }`}>
-              {tab === 'upload' ? '📄 Upload JD' : tab === 'jobs' ? '💼 Active Jobs' : '👥 Candidates'}
+        
+        {/* Menu */}
+        <div className="px-5 py-8 flex-1">
+          <p className="text-[10px] text-text-disabled font-bold tracking-widest uppercase mb-4 px-3">Recruiter Menu</p>
+          <nav className="flex flex-col gap-1">
+            <button onClick={() => setActiveTab('upload')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === 'upload' ? 'bg-white/[0.06] text-text-primary shadow-sm' : 'text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'}`}>
+              <span className="opacity-70">📄</span> Upload JD
             </button>
-          ))}
+            <button onClick={() => setActiveTab('jobs')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === 'jobs' ? 'bg-white/[0.06] text-text-primary shadow-sm' : 'text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'}`}>
+              <span className="opacity-70">💼</span> Active Jobs
+            </button>
+            <button onClick={() => setActiveTab('candidates')} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === 'candidates' ? 'bg-white/[0.06] text-text-primary shadow-sm' : 'text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'}`}>
+              <span className="opacity-70">👥</span> Candidates
+            </button>
+          </nav>
         </div>
+      </aside>
+
+      {/* ── Main Content ───────────────────────── */}
+      <main className="flex-1 relative z-10 overflow-y-auto bg-surface">
+        <div className="p-10 max-w-7xl mx-auto">
+           {/* Welcome Header */}
+           <div className="mb-10 animate-fade-in">
+             <h1 className="text-2xl font-bold text-text-primary mb-2">Welcome to the Recruiter Dashboard</h1>
+             <p className="text-sm text-text-muted">Upload Job Descriptions to generate AI screening blueprints, manage active roles, and review AI-scored candidate profiles.</p>
+           </div>
 
         {/* ═══════════════════════════════════════════
             TAB: Upload JD
@@ -254,8 +259,18 @@ export default function RecruiterDashboard() {
 
             {/* Text Upload */}
             <div className="card-surface p-7">
-              <h2 className="text-base font-bold text-text-primary mb-1">Paste JD Text</h2>
-              <p className="text-xs text-text-muted mb-6">Or paste the job description directly</p>
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h2 className="text-base font-bold text-text-primary mb-1">Paste JD Text</h2>
+                  <p className="text-xs text-text-muted">Or paste the job description directly</p>
+                </div>
+                <button 
+                  onClick={() => setJdText("Senior Backend Developer\n\nCompany: Tech Solutions\nLocation: Remote\nJob Type: Full-Time\n\nRole Overview:\nWe are looking for a Senior Backend Developer proficient in Java + Spring Boot or Python + FastAPI. You will build scalable microservices, manage PostgreSQL databases, and implement CI/CD pipelines using Docker and AWS.\n\nRequired Skills:\n- 4+ years backend development\n- Java (Spring Boot) or Python (FastAPI/Django)\n- Relational databases (PostgreSQL, MySQL)\n- Cloud platforms (AWS/GCP)\n- Docker and CI/CD")}
+                  className="btn-ghost text-[10px] py-1 px-3 border border-white/10 hover:border-accent-emerald/50 hover:text-accent-emerald transition-colors"
+                >
+                  Load Sample JD
+                </button>
+              </div>
 
               <textarea
                 value={jdText}
@@ -536,7 +551,8 @@ export default function RecruiterDashboard() {
             )}
           </div>
         )}
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

@@ -36,7 +36,47 @@ function CircularTimer({ seconds, total, color, label }: {
 }
 
 /* ═══════════════════════════════════════════════════
-   Voice Interview Page
+   Confetti Component (pure CSS)
+   ═══════════════════════════════════════════════════ */
+function Confetti() {
+  const colors = ['#34D399', '#A78BFA', '#F59E0B', '#60A5FA', '#F472B6', '#FBBF24', '#818CF8', '#FB923C'];
+  const pieces = Array.from({ length: 80 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    delay: Math.random() * 3,
+    duration: 2 + Math.random() * 3,
+    color: colors[i % colors.length],
+    size: 4 + Math.random() * 8,
+    rotation: Math.random() * 360,
+    type: Math.random() > 0.5 ? 'rect' : 'circle',
+  }));
+
+  return (
+    <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden rounded-2xl">
+      {pieces.map(p => (
+        <div key={p.id}
+             className="absolute animate-confetti-fall"
+             style={{
+               left: `${p.left}%`,
+               top: '-10px',
+               animationDelay: `${p.delay}s`,
+               animationDuration: `${p.duration}s`,
+             }}>
+          <div style={{
+            width: p.type === 'rect' ? p.size : p.size * 0.8,
+            height: p.type === 'rect' ? p.size * 0.4 : p.size * 0.8,
+            background: p.color,
+            borderRadius: p.type === 'circle' ? '50%' : '2px',
+            transform: `rotate(${p.rotation}deg)`,
+          }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   AI Interest Screening Page
    ═══════════════════════════════════════════════════ */
 export default function InterviewPage() {
   const params = useParams();
@@ -49,9 +89,18 @@ export default function InterviewPage() {
   const [interviewData, setInterviewData] = useState<any>(null);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [currentQNumber, setCurrentQNumber] = useState(1);
+  const currentQNumberRef = useRef(1);
+  useEffect(() => { currentQNumberRef.current = currentQNumber; }, [currentQNumber]);
+  
   const [totalQuestions, setTotalQuestions] = useState(8);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState('');
+  const [scoringComplete, setScoringComplete] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // ── Session Timer ──────────────────────────────
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const sessionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // ── Timer State ────────────────────────────────
   const [prepTimer, setPrepTimer] = useState(30);
@@ -110,6 +159,36 @@ export default function InterviewPage() {
     }
   }, []);
 
+  // ── AI Voice: Read Question Aloud ──────────────
+  const speakQuestion = useCallback((text: string) => {
+    try {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // stop any previous speech
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        utterance.volume = 0.8;
+        // Try to pick a natural-sounding voice
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
+          || voices.find(v => v.lang.startsWith('en') && v.name.includes('Female'))
+          || voices.find(v => v.lang.startsWith('en'));
+        if (preferred) utterance.voice = preferred;
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch (e) {
+      console.warn('TTS failed:', e);
+    }
+  }, []);
+
+  // Ensure voices are loaded
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices(); // trigger voice loading
+      window.speechSynthesis.onvoiceschanged = () => {};
+    }
+  }, []);
+
   // ── Load Interview Data ────────────────────────
   useEffect(() => {
     if (!applicationId) return;
@@ -137,6 +216,31 @@ export default function InterviewPage() {
       });
   }, [applicationId]);
 
+  // ── Poll for Scoring Completion ────────────────
+  useEffect(() => {
+    if (state !== 'COMPLETE' || scoringComplete || !interviewId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/interview/${interviewId}/history`);
+        if (res.ok) {
+          const data = await res.json();
+          const allScored = data.length > 0 && data.every((q: any) => q.candidate_answer === null || q.interest_score !== null);
+          if (allScored) {
+            setScoringComplete(true);
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 6000); // confetti for 6s
+            clearInterval(interval);
+          }
+        }
+      } catch (e) {
+        // ignore network errors during polling
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [state, scoringComplete, interviewId]);
+
   // ── Request Microphone Permissions ─────────────
   const requestMicPermission = useCallback(async () => {
     try {
@@ -144,11 +248,17 @@ export default function InterviewPage() {
       mediaStreamRef.current = stream;
       setState('PREPARING');
       setPrepTimer(30);
+      // Start session timer
+      sessionIntervalRef.current = setInterval(() => {
+        setSessionSeconds(prev => prev + 1);
+      }, 1000);
+      // Speak the first question
+      if (currentQuestion) speakQuestion(currentQuestion);
     } catch (e) {
-      setError('Microphone access is required to proceed with the AI interview.');
+      setError('Microphone access is required to proceed with the AI screening.');
       setState('ERROR');
     }
-  }, []);
+  }, [currentQuestion, speakQuestion]);
 
   // ── PREPARING Timer ────────────────────────────
   useEffect(() => {
@@ -193,8 +303,25 @@ export default function InterviewPage() {
   }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Start Recording ────────────────────────────
+  const activeRecorderRef = useRef<MediaRecorder | null>(null);
+
   const startRecording = useCallback(() => {
-    audioChunksRef.current = [];
+    // Detach and stop any existing recorder WITHOUT triggering submitAudio
+    if (mediaRecorderRef.current) {
+      const old = mediaRecorderRef.current;
+      old.ondataavailable = null;
+      old.onstop = null;
+      if (old.state !== 'inactive') {
+        try { old.stop(); } catch (e) { /* ignore */ }
+      }
+    }
+    mediaRecorderRef.current = null;
+    activeRecorderRef.current = null;
+
+    // Use a fresh local array for THIS recording's chunks only
+    const localChunks: Blob[] = [];
+    audioChunksRef.current = localChunks;
+
     const stream = mediaStreamRef.current;
     if (!stream) {
       setError('Microphone stream lost. Please refresh and try again.');
@@ -205,15 +332,18 @@ export default function InterviewPage() {
     try {
       const recorder = new MediaRecorder(stream, { mimeType: mimeTypeRef.current });
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        if (e.data.size > 0) localChunks.push(e.data);
       };
       recorder.onstop = () => {
-        // Send audio after recording stops
-        const blob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
+        // Only submit if THIS recorder is still the active one
+        if (activeRecorderRef.current !== recorder) return;
+        const blob = new Blob(localChunks, { type: mimeTypeRef.current });
         submitAudio(blob);
       };
-      recorder.start(100); // Collect data every 100ms
+      // NO timeslice — produces a single clean WebM blob on stop
+      recorder.start();
       mediaRecorderRef.current = recorder;
+      activeRecorderRef.current = recorder;
       setSpeakTimer(30);
       setState('RECORDING');
     } catch (e: any) {
@@ -241,7 +371,7 @@ export default function InterviewPage() {
     else if (mimeTypeRef.current.includes('ogg')) ext = '.ogg';
 
     formData.append('audio', blob, `answer${ext}`);
-    formData.append('q_number', String(currentQNumber));
+    formData.append('q_number', String(currentQNumberRef.current));
 
     try {
       const res = await fetch(`${API}/api/interview/${interviewId}/submit-audio`, {
@@ -259,18 +389,23 @@ export default function InterviewPage() {
 
       if (data.is_complete) {
         setState('COMPLETE');
+        // Stop session timer
+        if (sessionIntervalRef.current) clearInterval(sessionIntervalRef.current);
+        window.speechSynthesis?.cancel();
       } else {
         // Move to next question
         setCurrentQuestion(data.next_question);
         setCurrentQNumber(data.questions_completed + 1);
         setPrepTimer(30);
         setState('PREPARING');
+        // AI speaks the next question
+        speakQuestion(data.next_question);
       }
     } catch (e: any) {
       setError(e.message);
       setState('ERROR');
     }
-  }, [currentQNumber, interviewId]);
+  }, [interviewId]);
 
   // ── Cleanup on unmount ─────────────────────────
   useEffect(() => {
@@ -278,6 +413,8 @@ export default function InterviewPage() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach(t => t.stop());
       }
+      if (sessionIntervalRef.current) clearInterval(sessionIntervalRef.current);
+      window.speechSynthesis?.cancel();
     };
   }, []);
 
@@ -307,14 +444,34 @@ export default function InterviewPage() {
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="text-base font-bold tracking-tight text-text-primary">Catalyst</span>
+          <span className="text-base font-bold tracking-tight text-text-primary">TalentScope</span>
           <span className="text-text-disabled mx-2">/</span>
-          <span className="text-sm text-text-secondary">AI Interview</span>
+          <span className="text-sm text-text-secondary">AI Interest Screening</span>
         </div>
 
-        {/* Progress */}
+        {/* Session Timer + Progress */}
         {interviewData && state !== 'LOADING' && state !== 'ERROR' && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            {/* Session Timer */}
+            {sessionSeconds > 0 && state !== 'COMPLETE' && (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span className="text-xs text-text-muted font-mono tabular-nums">
+                  {Math.floor(sessionSeconds / 60)}:{String(sessionSeconds % 60).padStart(2, '0')}
+                </span>
+                <span className="text-[10px] text-text-disabled">elapsed</span>
+              </div>
+            )}
+            {/* Estimated Remaining */}
+            {sessionSeconds > 0 && state !== 'COMPLETE' && (
+              <span className="text-[10px] text-text-disabled hidden md:block">
+                ~{Math.max(1, Math.ceil((totalQuestions - currentQNumber + 1) * 1))} min left
+              </span>
+            )}
+            {/* Progress dots */}
             <div className="flex gap-1">
               {Array.from({ length: totalQuestions }, (_, i) => (
                 <div key={i} className={`w-2 h-2 rounded-full transition-all ${
@@ -338,8 +495,8 @@ export default function InterviewPage() {
           {/* ── LOADING ──────────────────────────── */}
           {state === 'LOADING' && (
             <div className="text-center animate-fade-in">
-              <div className="w-12 h-12 border-3 border-white/10 border-t-accent-emerald rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-sm text-text-muted">Loading interview...</p>
+              <div className="w-12 h-12 border-4 border-white/10 border-t-accent-emerald rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-sm text-text-muted">Loading screening...</p>
             </div>
           )}
 
@@ -364,9 +521,9 @@ export default function InterviewPage() {
                 Position: <span className="text-text-secondary font-medium">{interviewData?.job_title}</span>
               </p>
               <p className="text-xs text-text-muted mb-8 max-w-md mx-auto leading-relaxed">
-                This AI-powered interview consists of {totalQuestions} behavioral questions.
-                You&apos;ll have <strong className="text-text-secondary">30 seconds to prepare</strong> and{' '}
-                <strong className="text-text-secondary">30 seconds to answer</strong> each question via your microphone.
+                This quick AI-powered screening has {totalQuestions} conversational questions.
+                You&apos;ll have <strong className="text-text-secondary">30 seconds to read</strong> and{' '}
+                <strong className="text-text-secondary">30 seconds to respond</strong> to each question via your microphone.
               </p>
 
               <button onClick={requestMicPermission} className="btn-primary text-sm flex items-center gap-2 mx-auto">
@@ -396,13 +553,13 @@ export default function InterviewPage() {
               </div>
 
               {/* Timer */}
-              <CircularTimer seconds={prepTimer} total={30} color="#34D399" label="Prepare" />
+              <CircularTimer seconds={prepTimer} total={30} color="#34D399" label="Read" />
 
               {/* Status */}
               <div className="mt-6 flex items-center justify-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-accent-emerald animate-pulse" />
                 <p className="text-xs text-text-muted">
-                  Read the question and prepare your answer. Recording starts automatically.
+                  Read the question and think about your response. Recording starts automatically.
                 </p>
               </div>
 
@@ -465,10 +622,10 @@ export default function InterviewPage() {
           {state === 'PROCESSING' && (
             <div className="text-center animate-fade-in">
               <div className="card-surface p-10">
-                <div className="w-14 h-14 border-3 border-white/10 border-t-accent-purple rounded-full animate-spin mx-auto mb-6" />
+                <div className="w-14 h-14 border-4 border-white/10 border-t-accent-purple rounded-full animate-spin mx-auto mb-6" />
                 <h3 className="text-base font-bold text-text-primary mb-2">Processing your answer</h3>
                 <p className="text-xs text-text-muted max-w-sm mx-auto leading-relaxed">
-                  Transcribing audio and generating the next question. This takes a few seconds...
+                  Processing your response and generating the next question...
                 </p>
 
                 {transcript && (
@@ -484,8 +641,11 @@ export default function InterviewPage() {
           {/* ── COMPLETE ─────────────────────────── */}
           {state === 'COMPLETE' && (
             <div className="text-center animate-scale-in">
-              <div className="card-surface p-10">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6"
+              <div className="card-surface p-10 relative overflow-hidden">
+                {/* Confetti overlay inside the card */}
+                {showConfetti && <Confetti />}
+
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 relative z-10"
                      style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.15)' }}>
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#34D399" strokeWidth="2"
                        strokeLinecap="round" strokeLinejoin="round">
@@ -494,17 +654,46 @@ export default function InterviewPage() {
                   </svg>
                 </div>
 
-                <h2 className="text-xl font-bold text-text-primary mb-2">Interview Complete!</h2>
-                <p className="text-sm text-text-muted mb-6 max-w-md mx-auto leading-relaxed">
-                  Thank you for completing the AI assessment. Your responses are being analyzed
-                  and your Interest Score will be calculated shortly.
+                <h2 className="text-xl font-bold text-text-primary mb-2">Screening Complete!</h2>
+                <p className="text-sm text-text-muted mb-2 max-w-md mx-auto leading-relaxed">
+                  Thank you for your time! Your responses have been recorded and will be shared
+                  with the recruiting team. Your Interest Score is being calculated.
                 </p>
 
-                <div className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg mx-auto w-fit"
-                     style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.12)' }}>
-                  <div className="w-2 h-2 rounded-full bg-accent-purple animate-pulse" />
-                  <span className="text-xs text-accent-purple font-medium">Scoring in progress...</span>
-                </div>
+                {/* Session Duration */}
+                {sessionSeconds > 0 && (
+                  <p className="text-[10px] text-text-disabled mb-6">
+                    Session duration: {Math.floor(sessionSeconds / 60)}m {sessionSeconds % 60}s
+                  </p>
+                )}
+
+                {scoringComplete ? (
+                  <div className="flex flex-col items-center gap-6 mt-4">
+                    <div className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl animate-scale-in"
+                         style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34D399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span className="text-sm text-accent-emerald font-semibold">Scoring Complete!</span>
+                    </div>
+                    
+                    <button onClick={() => window.location.href = '/'} className="btn-primary text-sm px-8 py-3">
+                      Return to Home
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-6 mt-4">
+                    <div className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl"
+                         style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.15)' }}>
+                      <div className="w-2 h-2 rounded-full bg-accent-purple animate-pulse" />
+                      <span className="text-xs text-accent-purple font-medium">Scoring in progress... (You may safely close this window)</span>
+                    </div>
+                    
+                    <button onClick={() => window.location.href = '/'} className="btn-primary text-sm px-8 py-3 opacity-90 hover:opacity-100">
+                      Return to Home
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -522,11 +711,26 @@ export default function InterviewPage() {
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
                 </div>
-                <h2 className="text-lg font-bold text-red-400 mb-2">Something went wrong</h2>
-                <p className="text-sm text-text-muted mb-6">{error}</p>
-                <button onClick={() => window.location.reload()} className="btn-primary text-xs">
-                  Retry
-                </button>
+                <h2 className="text-lg font-bold text-red-400 mb-2">Oops! Something went wrong</h2>
+                <p className="text-sm text-text-muted mb-4 max-w-sm mx-auto">
+                  We encountered an issue processing your request: {error}. Don't worry, you can try answering this question again.
+                </p>
+                <div className="flex gap-4 justify-center mt-6">
+                  <button 
+                    onClick={() => {
+                      setError('');
+                      setPrepTimer(30);
+                      setState('PREPARING');
+                      speakQuestion(currentQuestion);
+                    }} 
+                    className="btn-primary text-xs px-6 py-2.5"
+                  >
+                    Try Answering Again
+                  </button>
+                  <button onClick={() => window.location.reload()} className="btn-ghost text-xs px-6 py-2.5 border-white/10 hover:bg-white/5">
+                    Hard Reload
+                  </button>
+                </div>
               </div>
             </div>
           )}
