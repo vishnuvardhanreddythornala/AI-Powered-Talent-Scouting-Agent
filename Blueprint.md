@@ -38,13 +38,6 @@ This schema employs strict relational mapping and **Soft Deletes** (`is_deleted`
 *   `is_deleted` (SMALLINT, DEFAULT 0) -> *1 indicates soft deletion.*
 
 ### B. Table Definitions
-
-**1. `recruiters`**
-*   `id` (UUID, Primary Key)
-*   `name` (VARCHAR)
-*   `email` (VARCHAR, Unique)
-*   `company_name` (VARCHAR)
-
 **2. `jobs` (The JD & Pipeline)**
 *   `id` (UUID, Primary Key)
 *   `recruiter_id` (UUID, Foreign Key)
