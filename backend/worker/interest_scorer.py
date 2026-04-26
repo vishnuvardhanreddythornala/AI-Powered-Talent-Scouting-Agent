@@ -25,8 +25,8 @@ from services.groq_service import evaluate_interest_score
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s │ %(levelname)-7s │ %(name)-25s │ %(message)s",
-    datefmt="%H:%M:%S",
+    format='{"time":"%(asctime)s", "level":"%(levelname)s", "service":"catalyst-scorer", "module":"%(name)s", "process":%(process)d, "message":"%(message)s"}',
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
 )
 logger = logging.getLogger("interest_scorer")
 
@@ -96,9 +96,16 @@ async def process_scoring_task(qna_id: str) -> None:
                 job_title=job_title,
             )
 
+            # Handle AI scoring failure (returns None when all models fail)
+            if evaluation is None:
+                logger.warning("⚠️ Scoring returned None for QnA %s — skipping (will not corrupt average)", qna_id)
+                await session.commit()
+                return
+
             # Update QnA record
             qna.interest_score = evaluation.interest_score
             qna.score_reasoning = evaluation.reasoning
+            qna.signals = evaluation.signals
             await session.flush()
 
             logger.info(
@@ -124,6 +131,35 @@ async def process_scoring_task(qna_id: str) -> None:
                     "📊 Updated application %s final_interest_score: %.1f",
                     application.id, application.final_interest_score,
                 )
+
+            # Check if interview is completed and all QnAs are scored → update application status
+            if interview.status == "completed":
+                # Count total answered QnAs vs scored QnAs
+                total_result = await session.execute(
+                    select(func.count(InterviewQnA.id))
+                    .where(
+                        InterviewQnA.interview_id == interview.id,
+                        InterviewQnA.candidate_answer.isnot(None),
+                    )
+                )
+                total_answered = total_result.scalar() or 0
+
+                scored_result = await session.execute(
+                    select(func.count(InterviewQnA.id))
+                    .where(
+                        InterviewQnA.interview_id == interview.id,
+                        InterviewQnA.interest_score.isnot(None),
+                    )
+                )
+                total_scored = scored_result.scalar() or 0
+
+                if total_answered > 0 and total_scored >= total_answered:
+                    application.status = "scored"
+                    await session.flush()
+                    logger.info(
+                        "🏁 Application %s status → scored (all %d QnAs scored)",
+                        application.id, total_scored,
+                    )
 
             await session.commit()
 

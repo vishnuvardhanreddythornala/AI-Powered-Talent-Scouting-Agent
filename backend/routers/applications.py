@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Application, Candidate, Interview, InterviewQnA, Job
 from schemas import ApplicationResponse, InterviewStateResponse
-from services.groq_service import extract_cv, generate_interview_blueprint
-from services.vector_service import calculate_match_score
+from services.groq_service import extract_cv, generate_interview_blueprint, evaluate_match_score
+from services.vector_service import calculate_match_score as vector_match_score
 from services.redis_service import store_interview_state
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,9 @@ async def apply_to_job(
 
     # Parse CV with AI
     cv_parsed = await extract_cv(cv_text)
+    
+    cv_data = cv_parsed.model_dump()
+    cv_data["raw_text"] = cv_text
 
     # Find or create candidate
     result = await db.execute(
@@ -83,12 +86,12 @@ async def apply_to_job(
 
     if candidate:
         candidate.name = cv_parsed.candidate_name
-        candidate.cv_parsed_json = cv_parsed.model_dump()
+        candidate.cv_parsed_json = cv_data
     else:
         candidate = Candidate(
             name=cv_parsed.candidate_name,
             email=cv_parsed.candidate_email,
-            cv_parsed_json=cv_parsed.model_dump(),
+            cv_parsed_json=cv_data,
         )
         db.add(candidate)
 
@@ -110,14 +113,22 @@ async def apply_to_job(
             detail="Candidate has already applied to this job.",
         )
 
-    # Calculate match score
+    # Calculate match score using Semantic Vector Similarity (primary)
+    # Falls back to keyword matching if Qdrant/Sentence-Transformers unavailable
     jd_skills = job.must_haves or []
     cv_skills = cv_parsed.tech_stack or []
+    match_score = 0
     try:
-        match_score = await calculate_match_score(str(job.id), cv_skills)
+        match_score = await vector_match_score(str(job_uuid), cv_skills)
+        logger.info("Vector match score: %d (Qdrant + Sentence-Transformers)", match_score)
     except Exception as e:
-        logger.warning("Match score calculation failed: %s", e)
-        match_score = 0
+        logger.warning("Vector match failed, falling back to keyword matching: %s", e)
+        try:
+            match_score = await evaluate_match_score(jd_skills, cv_skills, cv_text)
+            logger.info("Keyword match score (fallback): %d", match_score)
+        except Exception as e2:
+            logger.error("All match score methods failed: %s", e2)
+            match_score = 0
 
     # Generate interview blueprint
     cv_summary = cv_parsed.recent_projects_summary
@@ -162,6 +173,7 @@ async def apply_to_job(
             total_questions=blueprint.total_questions,
             job_title=job.title,
             cv_summary=cv_summary,
+            jd_summary=jd_summary,
         )
     except Exception as e:
         logger.warning("Failed to store interview state in Redis: %s", e)

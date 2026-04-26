@@ -108,6 +108,7 @@ class InterviewQnA(Base):
     candidate_answer = Column(Text, nullable=True)
     interest_score = Column(Integer, nullable=True)
     score_reasoning = Column(Text, nullable=True)
+    signals = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)

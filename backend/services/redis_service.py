@@ -53,6 +53,7 @@ async def store_interview_state(
     total_questions: int,
     job_title: str,
     cv_summary: str,
+    jd_summary: str,
 ) -> None:
     """Store initial interview metadata in Redis."""
     r = await get_redis()
@@ -61,6 +62,7 @@ async def store_interview_state(
         "total_questions": total_questions,
         "job_title": job_title,
         "cv_summary": cv_summary,
+        "jd_summary": jd_summary,
         "current_q": 0,
     }
     await r.set(state_key, json.dumps(state), ex=CONTEXT_TTL)
@@ -88,36 +90,7 @@ async def update_current_question(interview_id: str, q_number: int) -> None:
         await r.set(state_key, json.dumps(state), ex=CONTEXT_TTL)
 
 
-async def push_qna_context(
-    interview_id: str,
-    question: str,
-    answer: str,
-) -> None:
-    """Push a Q&A pair into the rolling window context list."""
-    r = await get_redis()
-    key = _context_key(interview_id)
-    entry = json.dumps({"question": question, "answer": answer})
 
-    # Push to list and trim to keep only last 4 entries (we fetch last 2 but keep buffer)
-    await r.rpush(key, entry)
-    await r.ltrim(key, -4, -1)
-    await r.expire(key, CONTEXT_TTL)
-    logger.debug("Pushed Q&A to context for interview %s", interview_id)
-
-
-async def get_recent_context(
-    interview_id: str,
-    count: int = 2,
-) -> List[Dict]:
-    """Fetch the last N Q&A pairs from the rolling window."""
-    r = await get_redis()
-    key = _context_key(interview_id)
-
-    # Get last `count` entries
-    entries = await r.lrange(key, -count, -1)
-    result = [json.loads(e) for e in entries]
-    logger.debug("Fetched %d recent context entries for %s", len(result), interview_id)
-    return result
 
 
 async def clear_interview_context(interview_id: str) -> None:

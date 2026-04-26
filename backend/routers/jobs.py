@@ -218,11 +218,20 @@ async def get_job_candidates(job_id: uuid.UUID, db: AsyncSession = Depends(get_d
     )
     applications = result.scalars().all()
 
+    from services.skill_gap import analyze_skill_gap
+    
+    # Need to fetch the job to get must_haves
+    job_result = await db.execute(select(Job).where(Job.id == job_id))
+    job = job_result.scalar_one_or_none()
+    jd_must_haves = job.must_haves if job else []
+
     candidates = []
     for app in applications:
         candidate = app.candidate
+        cv_skills = candidate.cv_parsed_json.get("tech_stack", []) if candidate.cv_parsed_json else []
         candidates.append({
             "application_id": str(app.id),
+            "interview_id": str(app.interviews[0].id) if app.interviews else None,
             "candidate_id": str(candidate.id),
             "candidate_name": candidate.name,
             "candidate_email": candidate.email,
@@ -230,7 +239,9 @@ async def get_job_candidates(job_id: uuid.UUID, db: AsyncSession = Depends(get_d
             "final_interest_score": round(app.final_interest_score, 1),
             "status": app.status,
             "applied_at": app.created_at.isoformat(),
-            "cv_skills": candidate.cv_parsed_json.get("tech_stack", []) if candidate.cv_parsed_json else [],
+            "cv_skills": cv_skills,
+            "cv_parsed_json": candidate.cv_parsed_json,
+            "skill_gap_analysis": analyze_skill_gap(jd_must_haves, cv_skills),
         })
 
     return candidates

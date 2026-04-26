@@ -3,6 +3,7 @@ Interview router — Audio upload, Whisper transcription,
 Redis rolling context, question generation, RabbitMQ publish.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -20,8 +21,6 @@ from schemas import AudioSubmissionResponse
 from services.groq_service import generate_next_question, transcribe_audio
 from services.redis_service import (
     get_interview_state,
-    get_recent_context,
-    push_qna_context,
     update_current_question,
     clear_interview_context,
 )
@@ -96,11 +95,19 @@ async def submit_audio(
     )
     try:
         content = await audio.read()
+        logger.info(
+            "📎 Audio upload Q%d: content_type=%s, size=%d bytes (%.1f KB)",
+            q_number, audio.content_type, len(content), len(content)/1024
+        )
         with open(temp_path, "wb") as f:
             f.write(content)
 
-        # Transcribe with Whisper
-        transcript = await transcribe_audio(temp_path, audio.content_type or "audio/webm")
+        try:
+            # Transcribe with Whisper
+            transcript = await transcribe_audio(temp_path, audio.content_type or "audio/webm")
+        except Exception as e:
+            logger.error("Audio transcription failed: %s", str(e), exc_info=True)
+            raise HTTPException(status_code=500, detail="Audio transcription failed. Please try again.")
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -123,20 +130,11 @@ async def submit_audio(
     qna.candidate_answer = transcript
     await db.flush()
 
-    # Push to Redis rolling context
+    # Update current question in Redis state
     try:
-        await push_qna_context(
-            str(interview_id), qna.ai_question, transcript
-        )
         await update_current_question(str(interview_id), q_number)
     except Exception as e:
         logger.warning("Redis context update failed: %s", e)
-
-    # Publish to RabbitMQ for background interest scoring
-    try:
-        publish_to_rabbitmq(str(qna.id))
-    except Exception as e:
-        logger.warning("RabbitMQ publish failed: %s", e)
 
     # Update interview progress
     interview.questions_completed = q_number
@@ -144,8 +142,7 @@ async def submit_audio(
 
     # Check if interview is complete
     is_complete = q_number >= interview.total_allocated_questions
-    next_question = None
-
+    
     if is_complete:
         interview.status = "completed"
         await db.flush()
@@ -154,24 +151,50 @@ async def submit_audio(
         except Exception:
             pass
         logger.info("✅ Interview %s completed", interview_id)
-    else:
+
+    # IMPORTANT: Commit the transaction BEFORE publishing to RabbitMQ.
+    # The worker runs in a separate process and queries the DB independently.
+    # If we publish before committing, the worker sees old status/answers.
+    await db.commit()
+
+    # Now publish to RabbitMQ for background interest scoring (non-blocking)
+    try:
+        await asyncio.to_thread(publish_to_rabbitmq, str(qna.id))
+    except Exception as e:
+        logger.warning("RabbitMQ publish failed: %s", e)
+
+    next_question = None
+
+    if not is_complete:
         # Generate next question
         # Get interview state from Redis
         state = await get_interview_state(str(interview_id))
         job_title = state["job_title"] if state else "the position"
         cv_summary = state["cv_summary"] if state else ""
+        jd_summary = state.get("jd_summary", "") if state else ""
 
-        # Get recent context (last 2 Q&A pairs)
-        recent = await get_recent_context(str(interview_id), count=2)
-
-        next_question = await generate_next_question(
-            job_title=job_title,
-            cv_summary=cv_summary,
-            current_q=q_number + 1,
-            total_q=interview.total_allocated_questions,
-            recent_context=recent,
-            last_answer=transcript,
+        # Get FULL context from database
+        history_result = await db.execute(
+            select(InterviewQnA)
+            .where(InterviewQnA.interview_id == interview_id, InterviewQnA.candidate_answer.isnot(None))
+            .order_by(InterviewQnA.q_number.asc())
         )
+        history_items = history_result.scalars().all()
+        recent = [{"question": item.ai_question, "answer": item.candidate_answer} for item in history_items]
+
+        try:
+            next_question = await generate_next_question(
+                job_title=job_title,
+                cv_summary=cv_summary,
+                jd_summary=jd_summary,
+                current_q=q_number + 1,
+                total_q=interview.total_allocated_questions,
+                recent_context=recent,
+                last_answer=transcript,
+            )
+        except Exception as e:
+            logger.error("Failed to generate next question: %s", str(e), exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to generate the next question. The AI service may be temporarily unavailable or rate-limited.")
 
         # Save next question to DB
         next_qna = InterviewQnA(
@@ -181,6 +204,7 @@ async def submit_audio(
         )
         db.add(next_qna)
         await db.flush()
+        await db.commit()
 
     return AudioSubmissionResponse(
         transcript=transcript,

@@ -14,14 +14,32 @@ from services.redis_service import get_redis, close_redis
 from services.vector_service import init_vector_service
 from routers import jobs, applications, interview
 from schemas import HealthResponse
+from config import get_settings
+
+import uuid
+import contextvars
+from fastapi import Request
+
+settings = get_settings()
+
+# Context var for request tracing
+request_id_ctx_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+
+# Custom log filter to inject request_id
+class RequestIdFilter(logging.Filter):
+    def filter(self, record):
+        record.request_id = request_id_ctx_var.get()
+        return True
 
 # ── Logging ──────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s │ %(levelname)-7s │ %(name)-25s │ %(message)s",
-    datefmt="%H:%M:%S",
+    format='{"time":"%(asctime)s", "level":"%(levelname)s", "request_id":"%(request_id)s", "service":"catalyst-api", "module":"%(name)s", "message":"%(message)s"}',
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
 )
 logger = logging.getLogger(__name__)
+for handler in logging.root.handlers:
+    handler.addFilter(RequestIdFilter())
 
 
 # ── Lifespan ─────────────────────────────────────
@@ -61,10 +79,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    req_id = str(uuid.uuid4())
+    request_id_ctx_var.set(req_id)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = req_id
+    return response
+
 # ── CORS ─────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        settings.FRONTEND_URL,
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
