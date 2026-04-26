@@ -30,3 +30,4 @@ redis[hiredis]==5.2.1
 pydantic==2.10.5
 pydantic-settings==2.7.1
 uuid7==0.1.0
+textblob==0.18.0.post0

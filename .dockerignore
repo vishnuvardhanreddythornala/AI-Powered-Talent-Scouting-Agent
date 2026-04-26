@@ -1,0 +1,55 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# MacOS
+.DS_Store
+
+# Project specific
+backend/uploads/
+frontend/.next/

@@ -6,15 +6,15 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     environment:
-      POSTGRES_USER: catalyst
-      POSTGRES_PASSWORD: catalyst_secret_2024
-      POSTGRES_DB: catalyst_db
+      POSTGRES_USER: ${POSTGRES_USER:-catalyst}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalyst_secret_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-catalyst_db}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U catalyst -d catalyst_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-catalyst} -d ${POSTGRES_DB:-catalyst_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,11 +36,11 @@ services:
     image: rabbitmq:3-management-alpine
     restart: unless-stopped
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -52,7 +52,7 @@ services:
     image: qdrant/qdrant
     restart: unless-stopped
     ports:
-      - "6333:6333"
+      - "${QDRANT_PORT:-6333}:6333"
     volumes:
       - qdrant_data:/qdrant/storage
 
@@ -63,15 +63,15 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://catalyst:catalyst_secret_2024@db:5432/catalyst_db
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-catalyst}:${POSTGRES_PASSWORD:-catalyst_secret_2024}@db:5432/${POSTGRES_DB:-catalyst_db}
       REDIS_HOST: redis
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
       QDRANT_HOST: qdrant
       POSTGRES_HOST: db
     depends_on:
@@ -96,11 +96,11 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://catalyst:catalyst_secret_2024@db:5432/catalyst_db
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-catalyst}:${POSTGRES_PASSWORD:-catalyst_secret_2024}@db:5432/${POSTGRES_DB:-catalyst_db}
       REDIS_HOST: redis
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
       QDRANT_HOST: qdrant
       POSTGRES_HOST: db
     depends_on:
