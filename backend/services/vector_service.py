@@ -6,11 +6,12 @@ Converts JD skills and CV skills into vectors and computes cosine similarity.
 import logging
 import numpy as np
 from typing import List
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from config import get_settings
 import uuid
+import asyncio
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -81,10 +82,35 @@ def encode_skills(skills: List[str]) -> np.ndarray:
     return avg_embedding
 
 
+def get_missing_skills_semantically(jd_must_haves: List[str], cv_skills: List[str], threshold: float = 0.45) -> List[str]:
+    """Find missing skills using semantic cosine similarity instead of exact string match."""
+    if not jd_must_haves:
+        return []
+    if not cv_skills:
+        return jd_must_haves
+
+    model = _get_model()
+    # Encode both lists into tensors
+    req_embeddings = model.encode(jd_must_haves, convert_to_tensor=True)
+    cv_embeddings = model.encode(cv_skills, convert_to_tensor=True)
+    
+    # Compute cosine similarities. Shape: (len(jd_must_haves), len(cv_skills))
+    cosine_scores = util.cos_sim(req_embeddings, cv_embeddings)
+    
+    missing = []
+    for i, req in enumerate(jd_must_haves):
+        # max similarity for this requirement against any CV skill
+        max_score = cosine_scores[i].max().item()
+        if max_score < threshold:
+            missing.append(req)
+            
+    return missing
+
+
 async def store_jd_skills(job_id: str, skills: List[str]) -> None:
     """Store JD skill embeddings in Qdrant for later matching."""
     qdrant = _get_qdrant()
-    embedding = encode_skills(skills)
+    embedding = await asyncio.to_thread(encode_skills, skills)
 
     point = PointStruct(
         id=str(uuid.uuid5(uuid.NAMESPACE_DNS, str(job_id))),
@@ -107,7 +133,7 @@ async def calculate_match_score(job_id: str, cv_skills: List[str]) -> int:
     qdrant = _get_qdrant()
 
     # Encode CV skills
-    cv_embedding = encode_skills(cv_skills)
+    cv_embedding = await asyncio.to_thread(encode_skills, cv_skills)
 
     if np.all(cv_embedding == 0):
         logger.warning("CV skills empty, returning 0 match score")
