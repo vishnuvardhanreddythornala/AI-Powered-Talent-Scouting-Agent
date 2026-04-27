@@ -16,6 +16,55 @@ For an in-depth look at our microservice architecture, API design, event-driven 
 
 ---
 
+## 🏗️ System Architecture
+
+```mermaid
+graph TD
+    subgraph Frontend [Next.js]
+        UI[Recruiter Dashboard & Candidate UI]
+    end
+
+    subgraph Backend [FastAPI]
+        API[REST API Router]
+        Jobs[Jobs Service]
+        Apps[Applications Service]
+        Interview[Interview Service]
+        API --> Jobs & Apps & Interview
+    end
+
+    subgraph Infrastructure
+        PG[(PostgreSQL)]
+        Redis[(Redis Cache)]
+        Qdrant[(Qdrant Vector DB)]
+        RMQ>RabbitMQ]
+    end
+
+    subgraph Background Workers
+        Scorer[Interest Scorer Worker]
+    end
+
+    subgraph External AI Services
+        GroqHeavy[LLaMA-3.3-70b]
+        GroqFast[LLaMA-3.1-8b]
+        Whisper[Whisper-large-v3]
+    end
+
+    UI -- HTTP/HTTPS --> API
+    Jobs -- Parse JD --> GroqHeavy
+    Apps -- Generate Blueprint --> GroqHeavy
+    Interview -- Audio --> Whisper
+    Interview -- Next Question --> GroqFast
+    
+    Jobs & Apps & Interview -- R/W --> PG
+    Interview -- State --> Redis
+    Jobs & Apps -- Vectors --> Qdrant
+    Interview -- Publish Task --> RMQ
+    RMQ -- Consume --> Scorer
+    Scorer -- Score Answer --> GroqHeavy
+```
+
+---
+
 ## ✨ Key Features
 
 ### For Recruiters:
@@ -33,6 +82,35 @@ For an in-depth look at our microservice architecture, API design, event-driven 
 ---
 
 ## 🧠 How the AI Logic & Scoring Works
+
+```mermaid
+sequenceDiagram
+    participant C as Candidate
+    participant API as FastAPI Backend
+    participant Q as Qdrant Vector DB
+    participant G as Groq (LLaMA-3)
+    participant W as Worker (RabbitMQ)
+    
+    C->>API: Uploads CV (PDF)
+    API->>G: Parse CV to structured JSON
+    G-->>API: Returns Skills & Experience
+    API->>Q: Vector search (JD Skills vs CV Skills)
+    Q-->>API: Cosine Similarity (Match Score)
+    API->>G: Generate Interview Blueprint
+    G-->>API: 5 Tailored Questions
+    API-->>C: Displays 0-100 Match Score & Starts Interview
+    
+    loop Real-time Interview
+        C->>API: Speaks Answer (Audio)
+        API->>G: Whisper Transcription
+        API->>G: Generate Next Question (LLaMA-8b)
+        API->>W: Publish Answer for Evaluation
+        API-->>C: Ask Next Question
+    end
+    
+    W->>G: Evaluate Genuine Interest (LLaMA-70b)
+    W->>API: Update Interest Score in DB
+```
 
 ### 1. Match Score (Semantic Similarity)
 We discarded naive keyword matching. When a candidate applies:

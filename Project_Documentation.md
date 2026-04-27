@@ -21,6 +21,63 @@ The TalentScope backend is built as a modular FastAPI monolith, supported by spe
 2. **Asynchronous (RabbitMQ):** Used for non-blocking workflows. When an interview answer is submitted, the API publishes a message to the `interest_scoring` queue. The background worker consumes this to perform heavy LLM evaluations.
 3. **LLM Inference (Groq API):** The backend communicates with Groq over HTTPS for text generation (LLaMA-3) and audio transcription (Whisper).
 
+### High-Level Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph Client Layer
+        UI[Next.js Frontend]
+    end
+
+    subgraph API Layer [FastAPI Application]
+        API[API Router]
+        Jobs[Jobs Service]
+        Apps[Applications Service]
+        Interview[Interview Service]
+        
+        API --> Jobs
+        API --> Apps
+        API --> Interview
+    end
+
+    subgraph Data & Message Broker
+        PG[(PostgreSQL)]
+        Redis[(Redis Context)]
+        Qdrant[(Qdrant Vector DB)]
+        RMQ>RabbitMQ]
+    end
+
+    subgraph Async Workers
+        Scorer[Interest Scorer Worker]
+    end
+
+    subgraph External Inference [Groq API]
+        GroqHeavy[LLaMA-3.3-70b]
+        GroqFast[LLaMA-3.1-8b]
+        Whisper[Whisper-large-v3]
+    end
+
+    %% Flow connections
+    UI -- HTTPS --> API
+    
+    Jobs -- R/W --> PG
+    Jobs -- Store Embeddings --> Qdrant
+    Jobs -- JD Parsing --> GroqHeavy
+
+    Apps -- Vector Match --> Qdrant
+    Apps -- Generate Blueprint --> GroqHeavy
+
+    Interview -- Audio --> Whisper
+    Interview -- State --> Redis
+    Interview -- Gen Question --> GroqFast
+    Interview -- Publish Task --> RMQ
+
+    RMQ -- Consume Task --> Scorer
+    Scorer -- Fetch Answer --> PG
+    Scorer -- Evaluate Interest --> GroqHeavy
+    Scorer -- Update DB --> PG
+```
+
 **Data Storage Strategy:**
 1. **PostgreSQL:** Acts as the primary source of truth for structured relational data (Jobs, Candidates, Applications, Interviews, and QnAs).
 2. **Qdrant:** A dedicated Vector Database used for Semantic Skill Matching. It stores JD skill embeddings and performs cosine similarity searches against candidate skills.
