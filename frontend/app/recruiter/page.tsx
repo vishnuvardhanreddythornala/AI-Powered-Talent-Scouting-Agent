@@ -95,16 +95,7 @@ export default function RecruiterDashboard() {
 
       if (!res.ok) {
         const err = await res.json();
-        // JD Quality Alert
-        if (res.status === 400 && err.detail?.error === 'JD_QUALITY_ALERT') {
-          setUploadError({
-            type: 'quality_alert',
-            issues: err.detail.issues,
-            parsed: err.detail.parsed_data,
-          });
-        } else {
-          setUploadError({ type: 'generic', message: err.detail || 'Upload failed' });
-        }
+        setUploadError({ type: 'generic', message: err.detail || 'Upload failed' });
         return;
       }
 
@@ -138,15 +129,7 @@ export default function RecruiterDashboard() {
 
       if (!res.ok) {
         const err = await res.json();
-        if (res.status === 400 && err.detail?.error === 'JD_QUALITY_ALERT') {
-          setUploadError({
-            type: 'quality_alert',
-            issues: err.detail.issues,
-            parsed: err.detail.parsed_data,
-          });
-        } else {
-          setUploadError({ type: 'generic', message: err.detail || 'Upload failed' });
-        }
+        setUploadError({ type: 'generic', message: err.detail || 'Upload failed' });
         return;
       }
 
@@ -360,32 +343,9 @@ export default function RecruiterDashboard() {
             {/* Error Display */}
             {uploadError && (
               <div className="lg:col-span-2 animate-scale-in">
-                {uploadError.type === 'quality_alert' ? (
-                  <div className="card-surface p-6 border-l-4 border-amber-500/60">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-amber-400 text-lg">⚠️</span>
-                      <h3 className="text-sm font-bold text-amber-400">JD Quality Alert</h3>
-                    </div>
-                    <p className="text-xs text-text-secondary mb-4">
-                      The job description doesn&apos;t meet quality standards. Please address the following:
-                    </p>
-                    <ul className="space-y-2 mb-4">
-                      {uploadError.issues.map((issue: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-xs text-text-secondary">
-                          <span className="text-amber-400 mt-0.5">•</span>
-                          {issue}
-                        </li>
-                      ))}
-                    </ul>
-                    <button onClick={() => setUploadError(null)} className="btn-ghost text-xs">
-                      Dismiss & Revise
-                    </button>
-                  </div>
-                ) : (
                   <div className="card-surface p-6 border-l-4 border-red-500/60">
                     <p className="text-sm text-red-400">{uploadError.message}</p>
                   </div>
-                )}
               </div>
             )}
 
@@ -402,6 +362,22 @@ export default function RecruiterDashboard() {
                 <p className="text-xs text-text-secondary mb-2">
                   <strong className="text-text-primary">{uploadSuccess.title}</strong> — Pipeline launched, ready for candidates.
                 </p>
+
+                {uploadSuccess.warnings && uploadSuccess.warnings.length > 0 && (
+                  <div className="mb-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    <h4 className="text-xs font-bold text-amber-400 mb-2 flex items-center gap-2">
+                      <span>⚠️</span> Quality Warnings (Discovery Started)
+                    </h4>
+                    <ul className="space-y-1">
+                      {uploadSuccess.warnings.map((warning: string, i: number) => (
+                        <li key={i} className="text-[11px] text-amber-200/80 flex items-start gap-2">
+                          <span className="text-amber-400 mt-0.5">•</span>
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {uploadSuccess.parsed_params && (
                   <div className="mb-4">
                     <p className="text-[10px] text-text-disabled uppercase tracking-wider mb-2">Skills Extracted</p>

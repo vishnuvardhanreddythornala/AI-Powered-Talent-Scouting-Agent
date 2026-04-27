@@ -84,6 +84,7 @@ class JobResponse(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    warnings: Optional[List[str]] = None
 
     model_config = {"from_attributes": True}
 

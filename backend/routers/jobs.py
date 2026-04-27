@@ -109,11 +109,7 @@ async def upload_jd_pdf(
     # Validate JD quality (Guardrail)
     issues = validate_jd_quality(parsed)
     if issues:
-        alert = JDQualityAlert(
-            issues=issues,
-            parsed_data=parsed,
-        )
-        raise HTTPException(status_code=400, detail=alert.model_dump())
+        logger.warning("JD created with quality warnings: %s", issues)
 
     # Store JD skills in Qdrant for vector matching
     all_skills = parsed.must_have_skills + parsed.nice_to_have_skills
@@ -137,8 +133,12 @@ async def upload_jd_pdf(
     await db.flush()
     await db.refresh(job)
 
+    job_response = JobResponse.model_validate(job)
+    if issues:
+        job_response.warnings = issues
+
     logger.info("✅ Job created: %s (%s)", job.title, job.id)
-    return job
+    return job_response
 
 
 @router.post("/upload-text", response_model=JobResponse, status_code=201)
@@ -153,11 +153,7 @@ async def upload_jd_text(
     # Validate JD quality (Guardrail)
     issues = validate_jd_quality(parsed)
     if issues:
-        alert = JDQualityAlert(
-            issues=issues,
-            parsed_data=parsed,
-        )
-        raise HTTPException(status_code=400, detail=alert.model_dump())
+        logger.warning("JD created with quality warnings: %s", issues)
 
     # Store JD skills in Qdrant
     job_id = uuid.uuid4()
@@ -180,8 +176,12 @@ async def upload_jd_text(
     await db.flush()
     await db.refresh(job)
 
+    job_response = JobResponse.model_validate(job)
+    if issues:
+        job_response.warnings = issues
+
     logger.info("✅ Job created: %s (%s)", job.title, job.id)
-    return job
+    return job_response
 
 
 @router.get("/", response_model=List[JobResponse])
